@@ -1,0 +1,291 @@
+/* Simplified Logic Reflections Game Styles */
+
+.logic-reflections-game {
+  min-height: 100vh;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+}
+
+/* Splash Screen Styles */
+.splash-screen {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 2rem;
+  text-align: center;
+}
+
+.splash-header {
+  margin-bottom: 3rem;
+}
+
+.game-title {
+  font-size: 3rem;
+  font-weight: 700;
+  margin: 0 0 1rem 0;
+  text-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.game-subtitle {
+  font-size: 1.2rem;
+  margin: 0 0 1rem 0;
+  opacity: 0.9;
+}
+
+.welcome-text {
+  font-size: 1rem;
+  margin: 0;
+  opacity: 0.8;
+}
+
+/* Difficulty Selection */
+.difficulty-selection {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 2rem;
+  margin-bottom: 3rem;
+  backdrop-filter: blur(10px);
+  min-width: 300px;
+}
+
+.difficulty-selection h3 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.difficulty-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-bottom: 2rem;
+}
+
+.difficulty-button {
+  padding: 1rem 1.5rem;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.1);
+  color: white;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+}
+
+.difficulty-button:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(255, 255, 255, 0.5);
+  transform: translateY(-2px);
+}
+
+.difficulty-button.selected {
+  background: rgba(255, 255, 255, 0.95);
+  color: #333;
+  border-color: white;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.play-button {
+  padding: 1.25rem 2rem;
+  border: none;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.95);
+  color: #333;
+  font-size: 1.1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+}
+
+.play-button:hover {
+  background: white;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
+}
+
+/* How to Play Section */
+.how-to-play {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 2rem;
+  max-width: 500px;
+  backdrop-filter: blur(10px);
+}
+
+.how-to-play h3 {
+  margin: 0 0 1.5rem 0;
+  font-size: 1.3rem;
+  font-weight: 600;
+}
+
+.instructions {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: left;
+}
+
+.instruction-item {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  font-size: 0.95rem;
+  line-height: 1.4;
+}
+
+.instruction-icon {
+  font-size: 1.2rem;
+  min-width: 1.5rem;
+  text-align: center;
+}
+
+/* Game Playing Styles */
+.game-container {
+  min-height: 100vh;
+  padding: 1rem;
+}
+
+.game-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  padding: 1rem;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  backdrop-filter: blur(10px);
+}
+
+.back-button {
+  background: rgba(255, 255, 255, 0.2);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 8px;
+  padding: 0.75rem 1.5rem;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.back-button:hover {
+  background: rgba(255, 255, 255, 0.3);
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.puzzle-info {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.difficulty-badge {
+  background: rgba(255, 255, 255, 0.2);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-transform: capitalize;
+}
+
+.base-score {
+  font-size: 0.9rem;
+  opacity: 0.9;
+}
+
+.game-content {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 2rem;
+  height: calc(100vh - 200px);
+}
+
+.game-main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.game-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+/* Loading Styles */
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  font-size: 1.2rem;
+  color: white;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .splash-screen {
+    padding: 1rem;
+  }
+  
+  .game-title {
+    font-size: 2rem;
+  }
+  
+  .difficulty-selection,
+  .how-to-play {
+    min-width: auto;
+    width: 100%;
+    max-width: 400px;
+  }
+  
+  .game-container {
+    padding: 0.5rem;
+  }
+  
+  .game-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+    height: auto;
+  }
+  
+  .game-sidebar {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 480px) {
+  .game-title {
+    font-size: 1.5rem;
+  }
+  
+  .difficulty-selection,
+  .how-to-play {
+    padding: 1.5rem;
+  }
+  
+  .game-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1rem;
+  }
+  
+  .puzzle-info {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .instruction-item {
+    font-size: 0.9rem;
+  }
+}

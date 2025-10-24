@@ -1,4 +1,4 @@
-/* PuzzleGrid component styles */
+/* PuzzleGrid component styles optimized for Devvit Web */
 
 .puzzle-grid-container {
   display: flex;
@@ -6,243 +6,143 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: rgba(255, 255, 255, 0.95);
   border-radius: 12px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  max-width: 100%;
+  overflow: hidden;
 }
 
-/* Grid headers */
-.grid-headers {
+/* Difficulty badge */
+.difficulty-badge {
   display: flex;
   align-items: center;
-  gap: 2px;
-}
-
-.column-headers {
+  gap: 0.5rem;
+  background: rgba(255, 255, 255, 0.9);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  border: 2px solid #ddd;
+  font-weight: 600;
   margin-bottom: 0.5rem;
 }
 
-.header-spacer {
-  width: 40px;
-  height: 30px;
+.difficulty-icon {
+  font-size: 1.2rem;
 }
 
-.column-header,
-.row-header {
-  width: 40px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: bold;
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.2);
-  border-radius: 4px;
+.difficulty-text {
   font-size: 0.9rem;
+  letter-spacing: 0.5px;
 }
 
-/* Grid content */
-.puzzle-grid-content {
+/* Grid wrapper */
+.puzzle-grid-wrapper {
   display: flex;
   flex-direction: column;
-  gap: 2px;
-}
-
-.puzzle-row {
-  display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1.5rem;
+  width: 100%;
 }
 
-.puzzle-cells {
-  display: flex;
-  gap: 2px;
+.puzzle-grid {
+  position: relative;
+  user-select: none;
+  background: #333;
+  border-radius: 8px;
+  padding: 2px;
 }
 
-/* Individual cells */
+/* Puzzle cells */
 .puzzle-cell {
-  width: 40px;
-  height: 40px;
-  border: 2px solid #ffffff;
-  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  cursor: pointer;
+  border: 1px solid #ddd;
   transition: all 0.2s ease;
-  background: #ffffff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  font-size: 0.8rem;
+  font-weight: bold;
+  overflow: hidden;
 }
 
-.puzzle-cell:hover {
+.puzzle-cell.interactive {
+  cursor: pointer;
+}
+
+.puzzle-cell.interactive:hover {
   transform: scale(1.05);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-  z-index: 10;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  z-index: 5;
+  border-color: #007bff;
+}
+
+.puzzle-cell.selected {
+  border: 3px solid #007bff;
+  box-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
+  transform: scale(1.1);
 }
 
 .puzzle-cell.hovered {
-  border-color: #ffd700;
-  box-shadow: 0 0 12px rgba(255, 215, 0, 0.5);
+  border: 2px solid #28a745;
 }
 
-/* Material-specific styling */
-.puzzle-cell.material-mirror {
-  background: linear-gradient(45deg, #c0c0c0, #e8e8e8);
-  border-color: #a0a0a0;
-}
-
-.puzzle-cell.material-water {
-  background: linear-gradient(45deg, #4a90e2, #7bb3f0);
-  border-color: #357abd;
-}
-
-.puzzle-cell.material-glass {
-  background: linear-gradient(45deg, #7ed321, #a8e063);
-  border-color: #6bb71a;
-}
-
-.puzzle-cell.material-metal {
-  background: linear-gradient(45deg, #d0021b, #e63946);
-  border-color: #b8001a;
-}
-
-.puzzle-cell.material-absorber {
-  background: linear-gradient(45deg, #000000, #333333);
-  border-color: #666666;
-}
-
-.puzzle-cell.material-empty {
-  background: rgba(255, 255, 255, 0.1);
-  border-color: rgba(255, 255, 255, 0.3);
-}
-
-/* Laser entry point */
 .puzzle-cell.laser-entry {
-  border-color: #ff6b6b;
-  box-shadow: 0 0 16px rgba(255, 107, 107, 0.6);
-  animation: pulse-entry 2s infinite;
+  border: 3px solid #dc3545;
+  box-shadow: 0 0 15px rgba(220, 53, 69, 0.6);
 }
 
-@keyframes pulse-entry {
-  0%, 100% {
-    box-shadow: 0 0 16px rgba(255, 107, 107, 0.6);
-  }
-  50% {
-    box-shadow: 0 0 24px rgba(255, 107, 107, 0.9);
-  }
-}
-
-.laser-entry-indicator {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-}
-
-.laser-beam-start {
-  width: 8px;
-  height: 8px;
-  background: #ff6b6b;
-  border-radius: 50%;
-  box-shadow: 0 0 8px rgba(255, 107, 107, 0.8);
-  animation: beam-pulse 1s infinite;
-}
-
-@keyframes beam-pulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.7;
-    transform: scale(1.2);
-  }
-}
-
-/* Material symbols */
-.material-symbol {
+/* Material icons */
+.material-icon {
   font-size: 1.2rem;
   z-index: 2;
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
 }
 
-/* Coordinate labels */
-.coordinate-label {
+/* Laser entry indicator */
+.laser-entry-indicator {
   position: absolute;
-  bottom: 2px;
+  top: 2px;
   right: 2px;
-  font-size: 0.6rem;
-  font-weight: bold;
-  color: rgba(0, 0, 0, 0.6);
-  background: rgba(255, 255, 255, 0.8);
-  padding: 1px 3px;
-  border-radius: 2px;
-  line-height: 1;
-}
-
-/* Hint path highlighting */
-.puzzle-cell.hint-path {
-  border-color: #ffd700;
-  background: linear-gradient(45deg, rgba(255, 215, 0, 0.3), rgba(255, 215, 0, 0.1));
-  animation: hint-glow 1.5s infinite;
-}
-
-@keyframes hint-glow {
-  0%, 100% {
-    box-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
-  }
-  50% {
-    box-shadow: 0 0 16px rgba(255, 215, 0, 0.7);
-  }
-}
-
-/* Hint animation */
-.hint-animation {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
   z-index: 3;
 }
 
-.laser-beam-hint {
-  width: 4px;
-  height: 4px;
-  background: #ffd700;
-  border-radius: 50%;
-  box-shadow: 0 0 12px rgba(255, 215, 0, 0.9);
-  animation: hint-beam 2s infinite;
+.laser-icon {
+  font-size: 0.8rem;
+  animation: pulse 1.5s infinite;
 }
 
-@keyframes hint-beam {
-  0% {
-    opacity: 0;
-    transform: scale(0.5);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.5);
-  }
-  100% {
-    opacity: 0;
-    transform: scale(0.5);
-  }
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.1); }
 }
 
-/* Material Legend */
+/* Cell labels */
+.cell-label {
+  position: absolute;
+  bottom: 1px;
+  left: 2px;
+  font-size: 0.6rem;
+  color: #666;
+  z-index: 1;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 1px 2px;
+  border-radius: 2px;
+}
+
+/* Material legend */
 .material-legend {
-  background: rgba(255, 255, 255, 0.95);
+  background: #f8f9fa;
   border-radius: 8px;
   padding: 1rem;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
   max-width: 400px;
+  width: 100%;
+  border: 1px solid #e0e0e0;
 }
 
-.material-legend h3 {
+.material-legend h4 {
   margin: 0 0 0.75rem 0;
   color: #333;
-  font-size: 1.1rem;
+  font-size: 1rem;
   text-align: center;
 }
 
@@ -256,107 +156,190 @@
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  padding: 0.5rem;
+  font-size: 0.85rem;
+  padding: 0.25rem;
   border-radius: 4px;
-  background: rgba(0, 0, 0, 0.02);
+  transition: background-color 0.2s ease;
 }
 
-.legend-symbol {
-  width: 24px;
-  height: 24px;
+.legend-item:hover {
+  background: rgba(0, 0, 0, 0.05);
+}
+
+.legend-color {
+  width: 20px;
+  height: 20px;
   border-radius: 4px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 0.9rem;
-  border: 1px solid rgba(0, 0, 0, 0.1);
+  border: 1px solid #ddd;
   flex-shrink: 0;
 }
 
 .legend-text {
-  display: flex;
-  flex-direction: column;
-  gap: 0.1rem;
+  flex: 1;
 }
 
-.legend-name {
-  font-weight: 600;
-  color: #333;
-  font-size: 0.9rem;
+/* Hover info */
+.hover-info {
+  position: fixed;
+  background: rgba(0, 0, 0, 0.9);
+  color: white;
+  padding: 0.75rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  pointer-events: none;
+  z-index: 1000;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 250px;
+  text-align: center;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
 }
 
-.legend-description {
-  font-size: 0.8rem;
-  color: #666;
+/* Laser beam overlay */
+.laser-beam-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 10;
 }
 
-/* Responsive design */
+/* Laser beam animations */
+@keyframes laser-draw {
+  0% {
+    stroke-dasharray: 0 1000;
+    opacity: 0;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    stroke-dasharray: 1000 0;
+    opacity: 1;
+  }
+}
+
+.laser-path {
+  stroke-dasharray: 1000;
+  stroke-dashoffset: 1000;
+  animation: laser-draw 2s ease-in-out forwards;
+}
+
+/* Material-specific styles with gradients */
+.material-mirror {
+  background: linear-gradient(135deg, #C0C0C0 0%, #E8E8E8 50%, #C0C0C0 100%);
+}
+
+.material-water {
+  background: linear-gradient(135deg, #4A90E2 0%, #7BB3F0 50%, #4A90E2 100%);
+  animation: water-ripple 3s ease-in-out infinite;
+}
+
+@keyframes water-ripple {
+  0%, 100% { filter: brightness(1); }
+  50% { filter: brightness(1.1); }
+}
+
+.material-glass {
+  background: linear-gradient(135deg, #7ED321 0%, #A8E063 50%, #7ED321 100%);
+  opacity: 0.8;
+}
+
+.material-metal {
+  background: linear-gradient(135deg, #D0021B 0%, #E85D75 50%, #D0021B 100%);
+}
+
+.material-absorber {
+  background: linear-gradient(135deg, #000000 0%, #333333 50%, #000000 100%);
+  color: white;
+}
+
+.material-empty {
+  background: #FFFFFF;
+  border-color: #e0e0e0;
+}
+
+/* Responsive design for mobile Reddit app */
 @media (max-width: 768px) {
-  .puzzle-cell {
-    width: 35px;
-    height: 35px;
+  .puzzle-grid-container {
+    padding: 0.75rem;
+    gap: 0.75rem;
   }
   
-  .column-header,
-  .row-header {
-    width: 35px;
-    height: 25px;
-    font-size: 0.8rem;
+  .difficulty-badge {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.85rem;
   }
   
-  .header-spacer {
-    width: 35px;
-    height: 25px;
-  }
-  
-  .material-symbol {
-    font-size: 1rem;
-  }
-  
-  .coordinate-label {
-    font-size: 0.5rem;
+  .puzzle-grid-wrapper {
+    gap: 1rem;
   }
   
   .material-legend {
-    max-width: 300px;
+    max-width: 100%;
     padding: 0.75rem;
   }
   
+  .legend-items {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.4rem;
+  }
+  
   .legend-item {
-    padding: 0.4rem;
+    font-size: 0.75rem;
     gap: 0.5rem;
   }
   
-  .legend-symbol {
-    width: 20px;
-    height: 20px;
-    font-size: 0.8rem;
+  .legend-color {
+    width: 16px;
+    height: 16px;
+  }
+  
+  .hover-info {
+    position: static;
+    transform: none;
+    margin-top: 1rem;
+    background: rgba(0, 0, 0, 0.1);
+    color: #333;
+    border: 1px solid #ddd;
+  }
+  
+  .material-icon {
+    font-size: 1rem;
+  }
+  
+  .cell-label {
+    font-size: 0.5rem;
   }
 }
 
 @media (max-width: 480px) {
-  .puzzle-cell {
-    width: 30px;
-    height: 30px;
+  .puzzle-grid-container {
+    padding: 0.5rem;
   }
   
-  .column-header,
-  .row-header {
-    width: 30px;
-    height: 22px;
-    font-size: 0.7rem;
+  .difficulty-badge {
+    padding: 0.3rem 0.6rem;
+    font-size: 0.8rem;
   }
   
-  .header-spacer {
-    width: 30px;
-    height: 22px;
-  }
-  
-  .material-symbol {
+  .material-legend h4 {
     font-size: 0.9rem;
   }
   
-  .coordinate-label {
-    display: none; /* Hide on very small screens */
+  .legend-items {
+    grid-template-columns: 1fr;
+  }
+  
+  .legend-item {
+    font-size: 0.7rem;
+  }
+  
+  .material-icon {
+    font-size: 0.9rem;
   }
 }

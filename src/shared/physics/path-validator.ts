@@ -1,225 +1,252 @@
-// Laser path validation utilities
+// Path validation utilities for Devvit Web serverless environment
 
-import type { Coordinate, GridCell, LaserPath, DifficultyLevel, Direction } from '../types/game.js';
+import type { Coordinate, LaserPath, PuzzleConfiguration } from '../types/game.js';
 import { LaserEngine } from './laser-engine.js';
-import { GRID_SIZES } from '../constants.js';
-import { createCoordinate, isValidCoordinate } from '../utils.js';
 
 export class PathValidator {
+  private laserEngine: LaserEngine;
+
+  constructor() {
+    this.laserEngine = new LaserEngine();
+  }
+
   /**
-   * Validate that a puzzle has exactly one solution
+   * Validate player's answer against the correct solution
+   * Optimized for Devvit Web's fast response requirements
    */
-  static validatePuzzleSolvability(
-    grid: GridCell[][],
-    entryPoint: Coordinate,
-    difficulty: DifficultyLevel
-  ): ValidationResult {
-    const initialDirection = LaserEngine.getEntryDirection(entryPoint, difficulty);
-    const laserPath = LaserEngine.simulateLaserPath(grid, entryPoint, initialDirection, difficulty);
+  validateAnswer(
+    puzzle: PuzzleConfiguration,
+    playerAnswer: Coordinate
+  ): {
+    isCorrect: boolean;
+    correctExit: Coordinate;
+    playerExit: Coordinate;
+    accuracy: number;
+  } {
+    // Get the correct laser path
+    const correctPath = this.laserEngine.simulateLaserPath(puzzle);
 
-    if (!LaserEngine.isPathSolvable(laserPath)) {
-      return {
-        isValid: false,
-        reason: 'Laser path does not reach a valid exit point',
-        exitPoint: null,
-      };
+    if (!correctPath.exitPoint) {
+      throw new Error('Invalid puzzle: no exit point found');
     }
 
-    if (!laserPath.exitPoint) {
-      return {
-        isValid: false,
-        reason: 'No exit point found',
-        exitPoint: null,
-      };
-    }
+    const correctExit = correctPath.exitPoint;
+    const isCorrect = this.coordinatesMatch(playerAnswer, correctExit);
 
-    // Validate exit point is on grid boundary
-    if (!this.isValidExitPoint(laserPath.exitPoint, difficulty)) {
-      return {
-        isValid: false,
-        reason: 'Exit point is not on grid boundary',
-        exitPoint: laserPath.exitPoint,
-      };
-    }
+    // Calculate accuracy based on distance from correct answer
+    const accuracy = this.calculateAccuracy(playerAnswer, correctExit, puzzle.grid.length);
 
     return {
-      isValid: true,
-      reason: 'Puzzle is solvable',
-      exitPoint: laserPath.exitPoint,
-      laserPath,
+      isCorrect,
+      correctExit,
+      playerExit: playerAnswer,
+      accuracy,
     };
   }
 
   /**
-   * Check if a coordinate is a valid exit point (on grid boundary)
+   * Check if two coordinates match exactly
    */
-  private static isValidExitPoint(exitPoint: Coordinate, difficulty: DifficultyLevel): boolean {
-    const gridSize = GRID_SIZES[difficulty];
+  private coordinatesMatch(coord1: Coordinate, coord2: Coordinate): boolean {
+    return coord1.row === coord2.row && coord1.col === coord2.col;
+  }
 
-    // Exit point should be just outside the grid boundary
-    return (
-      (exitPoint.row === -1 && exitPoint.col >= 0 && exitPoint.col < gridSize) || // Top edge
-      (exitPoint.row === gridSize && exitPoint.col >= 0 && exitPoint.col < gridSize) || // Bottom edge
-      (exitPoint.col === -1 && exitPoint.row >= 0 && exitPoint.row < gridSize) || // Left edge
-      (exitPoint.col === gridSize && exitPoint.row >= 0 && exitPoint.row < gridSize) // Right edge
+  /**
+   * Calculate accuracy percentage based on distance from correct answer
+   * Used for partial scoring in competitive scenarios
+   */
+  private calculateAccuracy(
+    playerAnswer: Coordinate,
+    correctAnswer: Coordinate,
+    gridSize: number
+  ): number {
+    const distance = Math.sqrt(
+      Math.pow(playerAnswer.row - correctAnswer.row, 2) +
+        Math.pow(playerAnswer.col - correctAnswer.col, 2)
     );
+
+    // Maximum possible distance is diagonal of grid
+    const maxDistance = Math.sqrt(2 * Math.pow(gridSize - 1, 2));
+
+    // Convert distance to accuracy percentage (closer = higher accuracy)
+    const accuracy = Math.max(0, 1 - distance / maxDistance);
+    return Math.round(accuracy * 100);
   }
 
   /**
-   * Calculate puzzle complexity score
+   * Validate puzzle solvability and uniqueness
+   * Critical for Devvit Web's deterministic requirements
    */
-  static calculateComplexity(laserPath: LaserPath, grid: GridCell[][]): ComplexityScore {
-    const reflectionCount = this.countReflections(laserPath);
-    const pathLength = laserPath.segments.length;
-    const materialVariety = this.countMaterialTypes(grid);
-    const quadrantsCovered = this.countQuadrantsCovered(laserPath, grid.length);
+  validatePuzzleIntegrity(puzzle: PuzzleConfiguration): {
+    isValid: boolean;
+    hasSolution: boolean;
+    hasUniqueSolution: boolean;
+    errors: string[];
+  } {
+    const errors: string[] = [];
+    let isValid = true;
+    let hasSolution = false;
+    let hasUniqueSolution = false;
 
-    const complexityScore =
-      reflectionCount * 2 + pathLength * 1 + materialVariety * 3 + quadrantsCovered * 2;
+    try {
+      // Check basic puzzle structure
+      if (!puzzle.grid || puzzle.grid.length === 0) {
+        errors.push('Invalid grid structure');
+        isValid = false;
+      }
+
+      if (!puzzle.laserEntry || !puzzle.correctExit) {
+        errors.push('Missing laser entry or exit points');
+        isValid = false;
+      }
+
+      if (!isValid) {
+        return { isValid, hasSolution, hasUniqueSolution, errors };
+      }
+
+      // Validate laser simulation
+      const path = this.laserEngine.simulateLaserPath(puzzle);
+
+      if (path.isComplete && path.exitPoint) {
+        hasSolution = true;
+
+        // Check if the solution matches the expected exit
+        if (this.coordinatesMatch(path.exitPoint, puzzle.correctExit)) {
+          hasUniqueSolution = true;
+        } else {
+          errors.push('Puzzle solution does not match expected exit point');
+        }
+      } else {
+        errors.push('Puzzle has no valid solution');
+      }
+    } catch (error) {
+      errors.push(`Simulation error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      isValid = false;
+    }
 
     return {
-      reflectionCount,
-      pathLength,
-      materialVariety,
-      quadrantsCovered,
-      totalScore: complexityScore,
+      isValid: isValid && hasSolution && hasUniqueSolution,
+      hasSolution,
+      hasUniqueSolution,
+      errors,
     };
   }
 
   /**
-   * Count the number of reflections in the laser path
+   * Get hint path for a specific quadrant
+   * Optimized for Devvit Web's payload size limits
    */
-  private static countReflections(laserPath: LaserPath): number {
-    let reflections = 0;
-    let previousDirection: Direction | null = null;
+  getHintPath(puzzle: PuzzleConfiguration, quadrant: number): LaserPath {
+    const quadrantSegments = this.laserEngine.getQuadrantPath(puzzle, quadrant);
 
-    for (const segment of laserPath.segments) {
-      if (previousDirection && segment.direction !== previousDirection) {
-        reflections++;
-      }
-      previousDirection = segment.direction;
-    }
-
-    return reflections;
+    return {
+      segments: quadrantSegments,
+      exitPoint: null, // Don't reveal the exit in hints
+      isComplete: false, // Partial path only
+    };
   }
 
   /**
-   * Count unique material types in the grid
+   * Calculate hint effectiveness
+   * Used to determine score penalties
    */
-  private static countMaterialTypes(grid: GridCell[][]): number {
-    const materials = new Set<string>();
+  calculateHintValue(
+    puzzle: PuzzleConfiguration,
+    quadrant: number
+  ): {
+    segmentCount: number;
+    coveragePercentage: number;
+    difficulty: number;
+  } {
+    const fullPath = this.laserEngine.simulateLaserPath(puzzle);
+    const hintPath = this.getHintPath(puzzle, quadrant);
 
-    for (const row of grid) {
-      for (const cell of row) {
-        if (cell.material !== 'empty') {
-          materials.add(cell.material);
+    const totalSegments = fullPath.segments.length;
+    const hintSegments = hintPath.segments.length;
+
+    const coveragePercentage = totalSegments > 0 ? (hintSegments / totalSegments) * 100 : 0;
+
+    // Calculate difficulty based on path complexity
+    const difficulty = this.calculatePathComplexity(fullPath);
+
+    return {
+      segmentCount: hintSegments,
+      coveragePercentage: Math.round(coveragePercentage),
+      difficulty,
+    };
+  }
+
+  /**
+   * Calculate path complexity for difficulty assessment
+   */
+  private calculatePathComplexity(path: LaserPath): number {
+    if (!path.segments.length) return 0;
+
+    let complexity = 0;
+    let directionChanges = 0;
+    let materialInteractions = 0;
+
+    for (let i = 0; i < path.segments.length; i++) {
+      const segment = path.segments[i];
+
+      // Count material interactions
+      if (segment.material !== 'empty') {
+        materialInteractions++;
+      }
+
+      // Count direction changes
+      if (i > 0) {
+        const prevSegment = path.segments[i - 1];
+        if (prevSegment.direction !== segment.direction) {
+          directionChanges++;
         }
       }
     }
 
-    return materials.size;
+    // Complexity formula: base path length + weighted interactions
+    complexity = path.segments.length + directionChanges * 2 + materialInteractions * 1.5;
+
+    return Math.round(complexity);
   }
 
   /**
-   * Count how many quadrants the laser path covers
+   * Validate coordinate format for user input
+   * Ensures proper format for Devvit Web API responses
    */
-  private static countQuadrantsCovered(laserPath: LaserPath, gridSize: number): number {
-    const quadrants = new Set<number>();
-    const midRow = Math.floor(gridSize / 2);
-    const midCol = Math.floor(gridSize / 2);
+  validateCoordinateInput(input: string, gridSize: number): Coordinate | null {
+    // Expected format: "A1", "B5", etc.
+    const match = input
+      .trim()
+      .toUpperCase()
+      .match(/^([A-Z])(\d+)$/);
 
-    for (const segment of laserPath.segments) {
-      const startQuadrant = this.getCoordinateQuadrant(segment.start, midRow, midCol);
-      const endQuadrant = this.getCoordinateQuadrant(segment.end, midRow, midCol);
+    if (!match) return null;
 
-      quadrants.add(startQuadrant);
-      quadrants.add(endQuadrant);
+    const colLetter = match[1];
+    const rowNumber = parseInt(match[2], 10);
+
+    // Convert to 0-based indices
+    const col = colLetter.charCodeAt(0) - 65; // A=0, B=1, etc.
+    const row = rowNumber - 1; // 1-based to 0-based
+
+    // Validate bounds
+    if (row < 0 || row >= gridSize || col < 0 || col >= gridSize) {
+      return null;
     }
 
-    return quadrants.size;
-  }
-
-  /**
-   * Get quadrant for a coordinate
-   */
-  private static getCoordinateQuadrant(coord: Coordinate, midRow: number, midCol: number): number {
-    if (coord.row < midRow && coord.col < midCol) return 0; // Top-left
-    if (coord.row < midRow && coord.col >= midCol) return 1; // Top-right
-    if (coord.row >= midRow && coord.col < midCol) return 2; // Bottom-left
-    return 3; // Bottom-right
-  }
-
-  /**
-   * Validate that puzzle difficulty matches expected complexity
-   */
-  static validateDifficultyLevel(
-    complexity: ComplexityScore,
-    expectedDifficulty: DifficultyLevel
-  ): boolean {
-    const difficultyThresholds = {
-      easy: { min: 0, max: 15 },
-      medium: { min: 10, max: 30 },
-      hard: { min: 25, max: 50 },
+    return {
+      row,
+      col,
+      label: input.trim().toUpperCase(),
     };
-
-    const threshold = difficultyThresholds[expectedDifficulty];
-    return complexity.totalScore >= threshold.min && complexity.totalScore <= threshold.max;
   }
 
   /**
-   * Generate multiple entry points for testing puzzle uniqueness
+   * Generate coordinate label from row/col indices
    */
-  static generateTestEntryPoints(difficulty: DifficultyLevel): Coordinate[] {
-    const gridSize = GRID_SIZES[difficulty];
-    const entryPoints: Coordinate[] = [];
-
-    // Top edge
-    for (let col = 0; col < gridSize; col++) {
-      entryPoints.push(createCoordinate(0, col));
-    }
-
-    // Bottom edge
-    for (let col = 0; col < gridSize; col++) {
-      entryPoints.push(createCoordinate(gridSize - 1, col));
-    }
-
-    // Left edge
-    for (let row = 1; row < gridSize - 1; row++) {
-      entryPoints.push(createCoordinate(row, 0));
-    }
-
-    // Right edge
-    for (let row = 1; row < gridSize - 1; row++) {
-      entryPoints.push(createCoordinate(row, gridSize - 1));
-    }
-
-    return entryPoints;
+  coordinateToLabel(row: number, col: number): string {
+    const colLetter = String.fromCharCode(65 + col);
+    const rowNumber = row + 1;
+    return `${colLetter}${rowNumber}`;
   }
-
-  /**
-   * Validate that puzzle has unique solution from given entry point
-   */
-  static validateUniqueSolution(
-    grid: GridCell[][],
-    entryPoint: Coordinate,
-    difficulty: DifficultyLevel
-  ): boolean {
-    const validation = this.validatePuzzleSolvability(grid, entryPoint, difficulty);
-    return validation.isValid && validation.exitPoint !== null;
-  }
-}
-
-export interface ValidationResult {
-  isValid: boolean;
-  reason: string;
-  exitPoint: Coordinate | null;
-  laserPath?: LaserPath;
-}
-
-export interface ComplexityScore {
-  reflectionCount: number;
-  pathLength: number;
-  materialVariety: number;
-  quadrantsCovered: number;
-  totalScore: number;
 }

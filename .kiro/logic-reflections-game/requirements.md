@@ -44,15 +44,15 @@ Logic Reflections is a grid-based laser puzzle game for Reddit that challenges p
 
 ### Requirement 3
 
-**User Story:** As a competitive player, I want to submit my answer privately and be timed, so that I can compete fairly without seeing others' solutions
+**User Story:** As a competitive player, I want to submit my answer and be timed, so that I can compete fairly in the game
 
 #### Acceptance Criteria
 
 1. WHEN a user clicks "Start Puzzle", THE Logic_Reflections_System SHALL begin timing the session
-2. THE Logic_Reflections_System SHALL accept answers only through private Reddit comments
-3. THE Logic_Reflections_System SHALL ensure private comments are visible only to the game system
-4. WHEN a user submits a valid answer format, THE Logic_Reflections_System SHALL stop the timer immediately
-5. THE Logic_Reflections_System SHALL validate answer format as grid coordinates (e.g., "Exit: D5")
+2. THE Logic_Reflections_System SHALL accept answers through in-game submission interface
+3. THE Logic_Reflections_System SHALL validate answer format as grid coordinates (e.g., clicking on exit cell)
+4. WHEN a user submits a valid answer, THE Logic_Reflections_System SHALL stop the timer immediately
+5. THE Logic_Reflections_System SHALL provide immediate feedback on answer correctness
 
 ### Requirement 4
 
@@ -84,8 +84,8 @@ Logic Reflections is a grid-based laser puzzle game for Reddit that challenges p
 
 #### Acceptance Criteria
 
-1. THE Logic_Reflections_System SHALL run within Reddit posts using Devvit framework
+1. THE Logic_Reflections_System SHALL run within Reddit posts using Devvit Web framework
 2. THE Logic_Reflections_System SHALL authenticate users automatically through Reddit login
-3. THE Logic_Reflections_System SHALL create game posts with engaging splash screens
-4. THE Logic_Reflections_System SHALL handle mobile and desktop Reddit interfaces
-5. THE Logic_Reflections_System SHALL persist game data using Redis storage
+3. THE Logic_Reflections_System SHALL create game posts with engaging splash screens using Devvit splash screen capability
+4. THE Logic_Reflections_System SHALL handle mobile and desktop Reddit interfaces with responsive design
+5. THE Logic_Reflections_System SHALL persist game data using Redis with proper data isolation per subreddit installation

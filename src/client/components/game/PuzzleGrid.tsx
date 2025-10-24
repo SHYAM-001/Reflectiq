@@ -1,239 +1,289 @@
-// PuzzleGrid component for rendering the game board
+// PuzzleGrid component optimized for Devvit Web and daily puzzle system
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import type {
+  PuzzleConfiguration,
   GridCell,
   Coordinate,
   DifficultyLevel,
-  PathSegment,
-} from '../../../shared/types/game.js';
+  LaserPath,
+} from '../../../shared/types/index.js';
 import { MATERIAL_COLORS, GRID_SIZES } from '../../../shared/constants.js';
-import { coordinateToLabel } from '../../../shared/utils.js';
+import { BeamHandler } from '../../../shared/physics/beam-handler.js';
+import './PuzzleGrid.css';
 
 interface PuzzleGridProps {
-  grid: GridCell[][];
-  laserEntry: Coordinate;
-  difficulty: DifficultyLevel;
-  hintSegments?: PathSegment[];
-  onCellHover?: (cell: GridCell | null) => void;
-  onCellClick?: (cell: GridCell) => void;
-  showCoordinates?: boolean;
-  animatingHint?: boolean;
+  puzzle: PuzzleConfiguration;
+  onAnswerSubmit: (answer: Coordinate) => void;
+  showLaserPath?: boolean;
+  laserPath?: LaserPath;
+  isInteractive?: boolean;
+  cellSize?: number;
+  showDifficulty?: boolean;
 }
 
 export const PuzzleGrid: React.FC<PuzzleGridProps> = ({
-  grid,
-  laserEntry,
-  difficulty,
-  hintSegments = [],
-  onCellHover,
-  onCellClick,
-  showCoordinates = true,
-  animatingHint = false,
+  puzzle,
+  onAnswerSubmit,
+  showLaserPath = false,
+  laserPath,
+  isInteractive = true,
+  cellSize,
+  showDifficulty = true,
 }) => {
-  const [hoveredCell, setHoveredCell] = useState<GridCell | null>(null);
-  const gridSize = GRID_SIZES[difficulty];
+  const [selectedCell, setSelectedCell] = useState<Coordinate | null>(null);
+  const [hoveredCell, setHoveredCell] = useState<Coordinate | null>(null);
+  const [isAnimating, setIsAnimating] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
 
-  const handleCellHover = useCallback(
-    (cell: GridCell | null) => {
-      setHoveredCell(cell);
-      onCellHover?.(cell);
-    },
-    [onCellHover]
-  );
+  const beamHandler = useMemo(() => new BeamHandler(), []);
 
+  // Detect mobile device for optimized rendering
+  useEffect(() => {
+    const checkMobile = () => {
+      setIsMobile(window.innerWidth <= 768 || 'ontouchstart' in window);
+    };
+
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+    return () => window.removeEventListener('resize', checkMobile);
+  }, []);
+
+  // Calculate optimal cell size for current viewport
+  const calculatedCellSize = useMemo(() => {
+    if (cellSize) return cellSize;
+
+    const container = document.querySelector('.puzzle-grid-container');
+    const containerWidth = container?.clientWidth || window.innerWidth - 40;
+    const containerHeight = container?.clientHeight || window.innerHeight - 200;
+
+    return beamHandler.calculateOptimalCellSize(
+      puzzle.grid.length,
+      containerWidth,
+      containerHeight,
+      isMobile
+    );
+  }, [cellSize, puzzle.grid.length, isMobile, beamHandler]);
+
+  // Handle cell click for answer submission
   const handleCellClick = useCallback(
     (cell: GridCell) => {
-      onCellClick?.(cell);
+      if (!isInteractive || isAnimating) return;
+
+      const coordinate = cell.coordinate;
+      setSelectedCell(coordinate);
+
+      // Submit answer after brief delay for visual feedback
+      setTimeout(() => {
+        onAnswerSubmit(coordinate);
+      }, 150);
     },
-    [onCellClick]
+    [isInteractive, isAnimating, onAnswerSubmit]
   );
 
-  const isLaserEntry = useCallback(
-    (row: number, col: number) => {
-      return laserEntry.row === row && laserEntry.col === col;
+  // Handle cell hover for material inspection
+  const handleCellHover = useCallback(
+    (cell: GridCell | null) => {
+      if (!isInteractive || isAnimating) return;
+      setHoveredCell(cell?.coordinate || null);
     },
-    [laserEntry]
+    [isInteractive, isAnimating]
   );
 
-  const isInHintPath = useCallback(
-    (row: number, col: number) => {
-      return hintSegments.some(
-        (segment) =>
-          (segment.start.row === row && segment.start.col === col) ||
-          (segment.end.row === row && segment.end.col === col)
-      );
-    },
-    [hintSegments]
-  );
+  // Get cell CSS classes based on state
+  const getCellClasses = useCallback(
+    (cell: GridCell): string => {
+      const classes = ['puzzle-cell'];
 
-  const getCellClassName = useCallback(
-    (cell: GridCell) => {
-      const baseClasses = 'puzzle-cell';
-      const classes = [baseClasses];
-
-      // Material-specific styling
       classes.push(`material-${cell.material}`);
 
-      // Hover state
       if (
-        hoveredCell?.coordinate.row === cell.coordinate.row &&
-        hoveredCell?.coordinate.col === cell.coordinate.col
+        selectedCell &&
+        selectedCell.row === cell.coordinate.row &&
+        selectedCell.col === cell.coordinate.col
+      ) {
+        classes.push('selected');
+      }
+
+      if (
+        hoveredCell &&
+        hoveredCell.row === cell.coordinate.row &&
+        hoveredCell.col === cell.coordinate.col
       ) {
         classes.push('hovered');
       }
 
-      // Laser entry point
-      if (isLaserEntry(cell.coordinate.row, cell.coordinate.col)) {
+      if (
+        puzzle.laserEntry.row === cell.coordinate.row &&
+        puzzle.laserEntry.col === cell.coordinate.col
+      ) {
         classes.push('laser-entry');
       }
 
-      // Hint path highlighting
-      if (isInHintPath(cell.coordinate.row, cell.coordinate.col)) {
-        classes.push('hint-path');
+      if (isInteractive) {
+        classes.push('interactive');
       }
 
       return classes.join(' ');
     },
-    [hoveredCell, isLaserEntry, isInHintPath]
+    [selectedCell, hoveredCell, puzzle.laserEntry, isInteractive]
   );
 
-  const renderCell = useCallback(
-    (cell: GridCell, rowIndex: number, colIndex: number) => {
-      const isEntry = isLaserEntry(rowIndex, colIndex);
+  // Get material icon for display
+  const getMaterialIcon = useCallback((material: string): string => {
+    const icons = {
+      mirror: '🪞',
+      water: '💧',
+      glass: '🔍',
+      metal: '⚙️',
+      absorber: '⚫',
+      empty: '',
+    };
+    return icons[material as keyof typeof icons] || '';
+  }, []);
 
-      return (
-        <div
-          key={`${rowIndex}-${colIndex}`}
-          className={getCellClassName(cell)}
-          style={{
-            backgroundColor: cell.color,
-            opacity: cell.material === 'empty' ? 0.1 : 1,
-          }}
-          onMouseEnter={() => handleCellHover(cell)}
-          onMouseLeave={() => handleCellHover(null)}
-          onClick={() => handleCellClick(cell)}
-          title={`${cell.coordinate.label} - ${cell.material}`}
-        >
-          {/* Laser entry indicator */}
-          {isEntry && (
-            <div className="laser-entry-indicator">
-              <div className="laser-beam-start" />
-            </div>
-          )}
+  // Get difficulty badge
+  const getDifficultyBadge = useCallback(() => {
+    if (!showDifficulty) return null;
 
-          {/* Material icon/symbol */}
-          <div className="material-symbol">{getMaterialSymbol(cell.material)}</div>
+    const difficultyIcons = {
+      easy: '🟢',
+      medium: '🟡',
+      hard: '🔴',
+    };
 
-          {/* Coordinate label */}
-          {showCoordinates && <div className="coordinate-label">{cell.coordinate.label}</div>}
-
-          {/* Hint path animation */}
-          {isInHintPath(cell.coordinate.row, cell.coordinate.col) && animatingHint && (
-            <div className="hint-animation">
-              <div className="laser-beam-hint" />
-            </div>
-          )}
-        </div>
-      );
-    },
-    [
-      getCellClassName,
-      handleCellHover,
-      handleCellClick,
-      isLaserEntry,
-      isInHintPath,
-      showCoordinates,
-      animatingHint,
-    ]
-  );
-
-  const renderColumnHeaders = () => {
     return (
-      <div className="grid-headers column-headers">
-        <div className="header-spacer" />
-        {Array.from({ length: gridSize }, (_, index) => (
-          <div key={index} className="column-header">
-            {String.fromCharCode(65 + index)}
-          </div>
-        ))}
+      <div className="difficulty-badge">
+        <span className="difficulty-icon">{difficultyIcons[puzzle.difficulty]}</span>
+        <span className="difficulty-text">{puzzle.difficulty.toUpperCase()}</span>
       </div>
     );
-  };
+  }, [puzzle.difficulty, showDifficulty]);
 
-  const renderRowHeader = (rowIndex: number) => {
-    return <div className="row-header">{rowIndex + 1}</div>;
+  // Render laser beam animation
+  const renderLaserBeam = useCallback(() => {
+    if (!showLaserPath || !laserPath || laserPath.segments.length === 0) {
+      return null;
+    }
+
+    const beamTrail = beamHandler.createBeamTrail(laserPath.segments, calculatedCellSize);
+
+    return (
+      <svg
+        className="laser-beam-overlay"
+        style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          width: '100%',
+          height: '100%',
+          pointerEvents: 'none',
+          zIndex: 10,
+        }}
+      >
+        <path
+          d={beamTrail.path}
+          stroke="#FF0000"
+          strokeWidth="3"
+          fill="none"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          className="laser-path"
+          style={{
+            filter: beamHandler.createGlowEffect(0.8),
+            animation: `laser-draw ${beamTrail.duration}s ease-in-out`,
+          }}
+        />
+      </svg>
+    );
+  }, [showLaserPath, laserPath, beamHandler, calculatedCellSize]);
+
+  // Grid style
+  const gridStyle: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: `repeat(${puzzle.grid.length}, ${calculatedCellSize}px)`,
+    gridTemplateRows: `repeat(${puzzle.grid.length}, ${calculatedCellSize}px)`,
+    gap: '1px',
+    backgroundColor: '#333',
+    padding: '2px',
+    borderRadius: '8px',
+    position: 'relative',
   };
 
   return (
     <div className="puzzle-grid-container">
-      {/* Column headers (A, B, C, etc.) */}
-      {showCoordinates && renderColumnHeaders()}
+      {getDifficultyBadge()}
 
-      <div className="puzzle-grid-content">
-        {grid.map((row, rowIndex) => (
-          <div key={rowIndex} className="puzzle-row">
-            {/* Row header (1, 2, 3, etc.) */}
-            {showCoordinates && renderRowHeader(rowIndex)}
-
-            {/* Grid cells */}
-            <div className="puzzle-cells">
-              {row.map((cell, colIndex) => renderCell(cell, rowIndex, colIndex))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Material legend */}
-      <MaterialLegend />
-    </div>
-  );
-};
-
-// Helper function to get material symbols
-function getMaterialSymbol(material: string): string {
-  const symbols = {
-    mirror: '🪞',
-    water: '💧',
-    glass: '🔷',
-    metal: '⚫',
-    absorber: '⬛',
-    empty: '',
-  };
-  return symbols[material as keyof typeof symbols] || '';
-}
-
-// Material legend component
-const MaterialLegend: React.FC = () => {
-  const materials = [
-    { type: 'mirror', symbol: '🪞', name: 'Mirror', description: 'Reflects at 90°' },
-    { type: 'water', symbol: '💧', name: 'Water', description: 'Soft reflection with diffusion' },
-    { type: 'glass', symbol: '🔷', name: 'Glass', description: '50% pass-through, 50% reflect' },
-    { type: 'metal', symbol: '⚫', name: 'Metal', description: 'Reverses beam direction' },
-    { type: 'absorber', symbol: '⬛', name: 'Absorber', description: 'Stops the beam completely' },
-  ];
-
-  return (
-    <div className="material-legend">
-      <h3>Materials</h3>
-      <div className="legend-items">
-        {materials.map((material) => (
-          <div key={material.type} className="legend-item">
-            <span
-              className="legend-symbol"
+      <div className="puzzle-grid-wrapper">
+        <div className="puzzle-grid" style={gridStyle}>
+          {puzzle.grid.flat().map((cell, index) => (
+            <div
+              key={`${cell.coordinate.row}-${cell.coordinate.col}`}
+              className={getCellClasses(cell)}
               style={{
-                backgroundColor: MATERIAL_COLORS[material.type as keyof typeof MATERIAL_COLORS],
+                backgroundColor: cell.color,
+                width: `${calculatedCellSize}px`,
+                height: `${calculatedCellSize}px`,
+                cursor: isInteractive ? 'pointer' : 'default',
               }}
+              onClick={() => handleCellClick(cell)}
+              onMouseEnter={() => handleCellHover(cell)}
+              onMouseLeave={() => handleCellHover(null)}
+              title={`${cell.coordinate.label} - ${cell.material}`}
             >
-              {material.symbol}
-            </span>
-            <div className="legend-text">
-              <span className="legend-name">{material.name}</span>
-              <span className="legend-description">{material.description}</span>
+              <span className="material-icon">{getMaterialIcon(cell.material)}</span>
+
+              {/* Laser entry indicator */}
+              {puzzle.laserEntry.row === cell.coordinate.row &&
+                puzzle.laserEntry.col === cell.coordinate.col && (
+                  <div className="laser-entry-indicator">
+                    <span className="laser-icon">🔴</span>
+                  </div>
+                )}
+
+              {/* Cell coordinate label */}
+              <span className="cell-label">{cell.coordinate.label}</span>
             </div>
+          ))}
+
+          {renderLaserBeam()}
+        </div>
+
+        {/* Material legend */}
+        <div className="material-legend">
+          <h4>Materials</h4>
+          <div className="legend-items">
+            {Object.entries({
+              mirror: '🪞 Mirror - Reflects laser',
+              water: '💧 Water - Diffuses beam',
+              glass: '🔍 Glass - Splits beam',
+              metal: '⚙️ Metal - Reverses direction',
+              absorber: '⚫ Absorber - Stops laser',
+            }).map(([material, description]) => (
+              <div key={material} className="legend-item">
+                <div
+                  className="legend-color"
+                  style={{
+                    backgroundColor: MATERIAL_COLORS[material as keyof typeof MATERIAL_COLORS],
+                  }}
+                />
+                <span className="legend-text">{description}</span>
+              </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
+
+      {/* Hover info panel */}
+      {hoveredCell && (
+        <div className="hover-info">
+          <strong>Cell {hoveredCell.label}</strong>
+          <br />
+          Material: {puzzle.grid[hoveredCell.row][hoveredCell.col].material}
+          <br />
+          Click to select as exit point
+        </div>
+      )}
     </div>
   );
 };

@@ -19,6 +19,12 @@ import {
   initializeGameServices,
 } from './routes/gameRoutes.js';
 import { puzzleFilterRoutes } from './routes/puzzleFilterRoutes.js';
+import gameRoutes from './routes/game.js';
+import redisRoutes from './routes/redis.js';
+import submissionRoutes from './routes/submission.js';
+import leaderboardRoutes from './routes/leaderboard.js';
+import dailyPuzzlesRoutes from './routes/daily-puzzles.js';
+import schedulerRoutes from './routes/scheduler.js';
 
 const app = express();
 
@@ -112,13 +118,31 @@ router.post<{ postId: string }, DecrementResponse | { status: string; message: s
   }
 );
 
-// Logic Reflections Game API Routes
+// Logic Reflections Game API Routes (Legacy)
 router.post('/api/puzzle/start', startPuzzle);
 router.post('/api/puzzle/hint', getHint);
 router.post('/api/puzzle/submit', submitAnswer);
 router.get('/api/leaderboard', getLeaderboard);
 router.get('/api/puzzle/:puzzleId', getPuzzle);
 router.get('/api/stats', getGameStats);
+
+// New GameEngine API Routes
+router.use(gameRoutes);
+
+// Redis Data Management Routes
+router.use(redisRoutes);
+
+// Game Submission Routes
+router.use(submissionRoutes);
+
+// Leaderboard Integration Routes
+router.use(leaderboardRoutes);
+
+// Daily Puzzle Generation Routes
+router.use(dailyPuzzlesRoutes);
+
+// Scheduler Routes (Internal)
+router.use(schedulerRoutes);
 
 // Puzzle Filter and Navigation Routes
 router.use('/api/puzzles', puzzleFilterRoutes);

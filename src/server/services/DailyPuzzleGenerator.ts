@@ -1,496 +1,458 @@
-// Daily puzzle generation service for Logic Reflections
+// DailyPuzzleGenerator service - Automated daily puzzle creation following Devvit Web patterns
+// Handles scheduled puzzle generation, uniqueness validation, and automated post creation
 
-import type { Context } from '@devvit/web/server';
-import type { PuzzleConfiguration, DifficultyLevel } from '../../shared/types/game.js';
-import type { DailyPuzzleSet, UserDailyProgress } from '../../shared/types/daily-puzzles.js';
-import { PuzzleGenerator, UniquenessValidator, PathValidator } from '../../shared/index.js';
-import { generateGridHash } from '../../shared/utils.js';
-import { RedisManager } from './RedisManager.js';
+import { redis } from '@devvit/web/server';
+import { gameEngine, type PuzzleConfiguration, type DifficultyLevel } from './GameEngine.js';
+import { redisManager } from './RedisManager.js';
 
+export interface DailyPuzzleSet {
+  date: Date;
+  puzzles: {
+    easy: PuzzleConfiguration;
+    medium: PuzzleConfiguration;
+    hard: PuzzleConfiguration;
+  };
+  postIds: {
+    easy: string;
+    medium: string;
+    hard: string;
+  };
+}
+
+export interface DailyGenerationConfig {
+  maxGenerationAttempts: number;
+  uniquenessCheckDepth: number; // Days to check back for uniqueness
+  generationTimeoutMs: number;
+  scheduledGenerationTime: string; // Cron format
+  retryDelayMs: number;
+}
+
+export interface GenerationResult {
+  success: boolean;
+  puzzleSet?: DailyPuzzleSet;
+  errors: string[];
+  warnings: string[];
+  generationTime: number;
+  uniquenessChecks: {
+    easy: boolean;
+    medium: boolean;
+    hard: boolean;
+  };
+}
+
+export interface PuzzleValidationResult {
+  isValid: boolean;
+  isUnique: boolean;
+  errors: string[];
+  warnings: string[];
+  similarPuzzles: string[]; // Hashes of similar puzzles
+}
+
+/**
+ * DailyPuzzleGenerator service for automated daily puzzle creation
+ * Following Devvit Web patterns with Redis storage and serverless constraints
+ */
 export class DailyPuzzleGenerator {
-  private redisManager: RedisManager;
-  private maxGenerationAttempts = 50;
-  private maxUniquenessAttempts = 10;
+  private config: DailyGenerationConfig;
 
-  constructor(redisManager: RedisManager) {
-    this.redisManager = redisManager;
+  constructor(config?: Partial<DailyGenerationConfig>) {
+    // Default configuration following Devvit best practices
+    this.config = {
+      maxGenerationAttempts: 50,
+      uniquenessCheckDepth: 30, // Check last 30 days
+      generationTimeoutMs: 25000, // 25 seconds (within Devvit's 30s limit)
+      scheduledGenerationTime: '0 0 * * *', // Daily at midnight UTC
+      retryDelayMs: 1000,
+      ...config,
+    };
   }
 
   /**
    * Generate daily puzzle set for a specific date
+   * Creates three unique puzzles (easy, medium, hard)
    */
-  async generateDailyPuzzles(date?: Date): Promise<DailyPuzzleSet> {
+  async generateDailyPuzzles(date?: Date): Promise<GenerationResult> {
+    const startTime = Date.now();
     const targetDate = date || new Date();
-    const dateString = this.formatDate(targetDate);
+    const dateString = this.formatDateString(targetDate);
 
-    console.log('Generating daily puzzles for:', dateString);
+    console.log(`Starting daily puzzle generation for ${dateString}`);
+
+    const result: GenerationResult = {
+      success: false,
+      errors: [],
+      warnings: [],
+      generationTime: 0,
+      uniquenessChecks: {
+        easy: false,
+        medium: false,
+        hard: false,
+      },
+    };
 
     try {
       // Check if puzzles already exist for this date
-      const existingPuzzles = await this.redisManager.getDailyPuzzles(dateString);
-      if (existingPuzzles) {
-        console.log('Daily puzzles already exist for:', dateString);
-        return existingPuzzles;
+      const existingSetKey = `daily:puzzles:${dateString}`;
+      const existingData = await redis.get(existingSetKey);
+
+      if (existingData) {
+        const existingSet = JSON.parse(existingData);
+        result.warnings.push(`Puzzles already exist for ${dateString}`);
+        result.puzzleSet = existingSet;
+        result.success = true;
+        result.generationTime = Date.now() - startTime;
+        return result;
       }
 
-      // Load historical puzzle hashes for uniqueness checking
-      await this.loadHistoricalHashes();
-
       // Generate puzzles for each difficulty
-      const easyPuzzle = await this.generateUniquePuzzle('easy');
-      const mediumPuzzle = await this.generateUniquePuzzle('medium');
-      const hardPuzzle = await this.generateUniquePuzzle('hard');
+      const difficulties: DifficultyLevel[] = ['easy', 'medium', 'hard'];
+      const puzzles: Record<DifficultyLevel, PuzzleConfiguration> = {} as any;
+
+      for (const difficulty of difficulties) {
+        console.log(`Generating ${difficulty} puzzle...`);
+
+        const puzzle = await this.generateUniquePuzzle(difficulty, dateString);
+        if (!puzzle) {
+          result.errors.push(`Failed to generate unique ${difficulty} puzzle`);
+          continue;
+        }
+
+        // Validate puzzle
+        const validation = await this.validatePuzzle(puzzle);
+        if (!validation.isValid) {
+          result.errors.push(
+            `Generated ${difficulty} puzzle failed validation: ${validation.errors.join(', ')}`
+          );
+          continue;
+        }
+
+        if (!validation.isUnique) {
+          result.warnings.push(`Generated ${difficulty} puzzle is similar to existing puzzles`);
+        }
+
+        puzzles[difficulty] = puzzle;
+        result.uniquenessChecks[difficulty] = validation.isUnique;
+
+        console.log(`Generated and stored ${difficulty} puzzle: ${puzzle.id}`);
+      }
+
+      // Check if we have all three puzzles
+      if (Object.keys(puzzles).length !== 3) {
+        result.errors.push('Failed to generate complete puzzle set');
+        result.success = false;
+        result.generationTime = Date.now() - startTime;
+        return result;
+      }
 
       // Create daily puzzle set
       const dailyPuzzleSet: DailyPuzzleSet = {
         date: targetDate,
-        puzzles: {
-          easy: easyPuzzle,
-          medium: mediumPuzzle,
-          hard: hardPuzzle,
-        },
+        puzzles,
         postIds: {
-          easy: '',
-          medium: '',
-          hard: '',
+          easy: `post_${puzzles.easy.id}`,
+          medium: `post_${puzzles.medium.id}`,
+          hard: `post_${puzzles.hard.id}`,
         },
       };
 
-      // Store the daily puzzle set
-      await this.redisManager.storeDailyPuzzles(dateString, dailyPuzzleSet);
+      // Store daily puzzle set with 7-day expiration
+      await redis.setEx(existingSetKey, 604800, JSON.stringify(dailyPuzzleSet));
 
-      // Store puzzle hashes for future uniqueness checking
-      await this.storePuzzleHashes([easyPuzzle, mediumPuzzle, hardPuzzle]);
+      result.puzzleSet = dailyPuzzleSet;
+      result.success = true;
+      result.generationTime = Date.now() - startTime;
 
-      console.log('Daily puzzles generated successfully for:', dateString);
-      return dailyPuzzleSet;
+      console.log(
+        `Successfully generated daily puzzle set for ${dateString} in ${result.generationTime}ms`
+      );
+
+      return result;
     } catch (error) {
-      console.error('Error generating daily puzzles:', error);
-      throw new Error(`Failed to generate daily puzzles: ${error}`);
+      console.error('Daily puzzle generation failed:', error);
+      result.errors.push(error instanceof Error ? error.message : 'Unknown error');
+      result.success = false;
+      result.generationTime = Date.now() - startTime;
+      return result;
     }
   }
 
   /**
    * Generate a unique puzzle for a specific difficulty
    */
-  private async generateUniquePuzzle(difficulty: DifficultyLevel): Promise<PuzzleConfiguration> {
-    let attempts = 0;
-    let uniquenessAttempts = 0;
+  private async generateUniquePuzzle(
+    difficulty: DifficultyLevel,
+    dateString: string
+  ): Promise<PuzzleConfiguration | null> {
+    const maxAttempts = this.config.maxGenerationAttempts;
+    const startTime = Date.now();
 
-    while (attempts < this.maxGenerationAttempts) {
-      attempts++;
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      // Check timeout
+      if (Date.now() - startTime > this.config.generationTimeoutMs) {
+        console.warn(`Puzzle generation timeout after ${attempt} attempts`);
+        break;
+      }
 
       try {
-        // Generate a new puzzle
-        const puzzle = PuzzleGenerator.generatePuzzle(difficulty);
+        // Generate puzzle
+        const puzzle = await gameEngine.generatePuzzle(difficulty);
 
-        // Validate puzzle solvability
-        const validation = PathValidator.validatePuzzleSolvability(
-          puzzle.grid,
-          puzzle.laserEntry,
-          difficulty
-        );
+        // Create unique ID with date prefix
+        puzzle.id = `${dateString}_${difficulty}_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
 
-        if (!validation.isValid) {
-          console.log(
-            `Puzzle generation attempt ${attempts} failed validation:`,
-            validation.reason
-          );
-          continue;
+        // Check uniqueness by generating a simple hash
+        const puzzleHash = this.generatePuzzleHash(puzzle);
+        const hashKey = `puzzle:hash:${puzzleHash}`;
+        const exists = await redis.get(hashKey);
+
+        if (!exists) {
+          // Store hash to prevent duplicates
+          await redis.setEx(hashKey, 2592000, puzzle.id); // 30 days
+          console.log(`Generated unique ${difficulty} puzzle on attempt ${attempt}`);
+          return puzzle;
         }
 
-        // Check uniqueness
-        const isUnique = await this.validateUniqueness(puzzle);
-        if (!isUnique) {
-          uniquenessAttempts++;
-          console.log(`Puzzle uniqueness check failed (attempt ${uniquenessAttempts})`);
+        console.log(`Puzzle attempt ${attempt} was not unique, retrying...`);
 
-          if (uniquenessAttempts >= this.maxUniquenessAttempts) {
-            console.warn('Max uniqueness attempts reached, accepting similar puzzle');
-            return puzzle;
-          }
-          continue;
+        // Small delay between attempts
+        if (attempt < maxAttempts) {
+          await this.delay(this.config.retryDelayMs);
         }
-
-        // Validate complexity matches difficulty
-        const complexity = PathValidator.calculateComplexity(validation.laserPath!, puzzle.grid);
-        if (!PathValidator.validateDifficultyLevel(complexity, difficulty)) {
-          console.log(`Puzzle complexity doesn't match difficulty: ${complexity.totalScore}`);
-          continue;
-        }
-
-        console.log(`Generated valid ${difficulty} puzzle after ${attempts} attempts`);
-        return puzzle;
       } catch (error) {
-        console.error(`Error in puzzle generation attempt ${attempts}:`, error);
-      }
-    }
+        console.error(`Puzzle generation attempt ${attempt} failed:`, error);
 
-    // Fallback: generate a simple puzzle if all attempts failed
-    console.warn(`Failed to generate unique puzzle after ${attempts} attempts, using fallback`);
-    return this.generateFallbackPuzzle(difficulty);
-  }
-
-  /**
-   * Validate puzzle uniqueness against historical puzzles
-   */
-  private async validateUniqueness(puzzle: PuzzleConfiguration): Promise<boolean> {
-    try {
-      const puzzleHash = generateGridHash(puzzle.grid);
-
-      // Check if hash already exists
-      const hashExists = await this.redisManager.puzzleHashExists(puzzleHash);
-      if (hashExists) {
-        return false;
-      }
-
-      // Additional uniqueness validation could be added here
-      // For example, checking structural similarity
-
-      return true;
-    } catch (error) {
-      console.error('Error validating puzzle uniqueness:', error);
-      return true; // Default to accepting the puzzle if validation fails
-    }
-  }
-
-  /**
-   * Load historical puzzle hashes for uniqueness checking
-   */
-  private async loadHistoricalHashes(): Promise<void> {
-    try {
-      const hashes = await this.redisManager.getAllPuzzleHashes();
-      PuzzleGenerator.loadHistoricalHashes(hashes);
-      console.log(`Loaded ${hashes.length} historical puzzle hashes`);
-    } catch (error) {
-      console.error('Error loading historical hashes:', error);
-    }
-  }
-
-  /**
-   * Store puzzle hashes for future uniqueness checking
-   */
-  private async storePuzzleHashes(puzzles: PuzzleConfiguration[]): Promise<void> {
-    try {
-      for (const puzzle of puzzles) {
-        const hash = generateGridHash(puzzle.grid);
-        await this.redisManager.storePuzzleHash(hash, puzzle.id);
-      }
-      console.log(`Stored ${puzzles.length} puzzle hashes`);
-    } catch (error) {
-      console.error('Error storing puzzle hashes:', error);
-    }
-  }
-
-  /**
-   * Generate fallback puzzle when generation fails
-   */
-  private generateFallbackPuzzle(difficulty: DifficultyLevel): PuzzleConfiguration {
-    console.log(`Generating fallback puzzle for ${difficulty}`);
-
-    // Use the basic puzzle generator fallback
-    return PuzzleGenerator.generatePuzzle(difficulty);
-  }
-
-  /**
-   * Schedule daily puzzle generation
-   */
-  async scheduleDailyGeneration(): Promise<void> {
-    try {
-      const now = new Date();
-      const tomorrow = new Date(now);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      tomorrow.setHours(0, 0, 0, 0); // Midnight UTC
-
-      const timeUntilMidnight = tomorrow.getTime() - now.getTime();
-
-      console.log(
-        `Scheduling next daily puzzle generation in ${Math.round(timeUntilMidnight / 1000 / 60)} minutes`
-      );
-
-      // In a serverless environment, we can't use setTimeout for long periods
-      // Instead, this would be handled by external scheduling (cron jobs, etc.)
-      // For now, we'll just log the scheduling intent
-
-      console.log('Daily puzzle generation scheduled for:', tomorrow.toISOString());
-    } catch (error) {
-      console.error('Error scheduling daily generation:', error);
-    }
-  }
-
-  /**
-   * Create Reddit posts for daily puzzles
-   */
-  async createPuzzlePost(puzzle: PuzzleConfiguration, context: Context): Promise<string> {
-    try {
-      const postTitle = this.generatePostTitle(puzzle);
-      const postContent = this.generatePostContent(puzzle);
-
-      // In a real implementation, create the Reddit post
-      console.log('Would create Reddit post:', {
-        title: postTitle,
-        content: postContent.substring(0, 100) + '...',
-      });
-
-      // Placeholder post ID - in real implementation:
-      // const post = await context.reddit.submitPost({
-      //   title: postTitle,
-      //   text: postContent,
-      //   subredditName: context.subredditName,
-      //   flair: this.getDifficultyFlair(puzzle.difficulty)
-      // });
-      // return post.id;
-
-      return `post_${puzzle.id}`;
-    } catch (error) {
-      console.error('Error creating puzzle post:', error);
-      throw error;
-    }
-  }
-
-  /**
-   * Generate post title for puzzle
-   */
-  private generatePostTitle(puzzle: PuzzleConfiguration): string {
-    const date = new Date().toISOString().split('T')[0];
-    const difficultyEmoji = {
-      easy: '🟢',
-      medium: '🟡',
-      hard: '🔴',
-    };
-
-    return `${difficultyEmoji[puzzle.difficulty]} Logic Reflections - ${puzzle.difficulty.charAt(0).toUpperCase() + puzzle.difficulty.slice(1)} - ${date}`;
-  }
-
-  /**
-   * Generate post content for puzzle
-   */
-  private generatePostContent(puzzle: PuzzleConfiguration): string {
-    const gridVisualization = this.generateGridVisualization(puzzle);
-
-    return `# 🔬 Logic Reflections Daily Puzzle
-
-**Difficulty:** ${puzzle.difficulty.charAt(0).toUpperCase() + puzzle.difficulty.slice(1)}
-**Grid Size:** ${puzzle.grid.length}×${puzzle.grid.length}
-**Max Time:** ${Math.floor(puzzle.maxTime / 60)} minutes
-**Base Score:** ${puzzle.baseScore} points
-
-## 🎯 Your Mission
-
-Predict where the laser beam will exit the grid after reflecting off the materials!
-
-**Laser Entry Point:** ${puzzle.laserEntry.label}
-
-## 🧩 Grid Layout
-
-\`\`\`
-${gridVisualization}
-\`\`\`
-
-## 📝 How to Submit
-
-Comment with your answer in this format:
-\`\`\`
-Exit: [Your Answer]
-\`\`\`
-
-Example: \`Exit: D5\`
-
-## 🏆 Scoring
-
-- **Base Score:** ${puzzle.baseScore} points
-- **Hint Penalty:** Use fewer hints for higher scores
-- **Time Bonus:** Faster solutions earn more points
-
-## 🧠 Materials Guide
-
-- 🪞 **Mirror** (Silver): Reflects at 90° angles
-- 💧 **Water** (Blue): Soft reflection with diffusion
-- 🔷 **Glass** (Green): 50% pass-through, 50% reflection
-- ⚫ **Metal** (Red): Reverses beam direction
-- ⬛ **Absorber** (Black): Stops the beam completely
-
-Good luck! 🚀`;
-  }
-
-  /**
-   * Generate ASCII visualization of the puzzle grid
-   */
-  private generateGridVisualization(puzzle: PuzzleConfiguration): string {
-    const materialSymbols = {
-      empty: '⬜',
-      mirror: '🪞',
-      water: '💧',
-      glass: '🔷',
-      metal: '⚫',
-      absorber: '⬛',
-    };
-
-    const grid = puzzle.grid;
-    const size = grid.length;
-
-    // Create header with column labels
-    let visualization = '   ';
-    for (let col = 0; col < size; col++) {
-      visualization += ` ${String.fromCharCode(65 + col)} `;
-    }
-    visualization += '\n';
-
-    // Create grid rows
-    for (let row = 0; row < size; row++) {
-      visualization += `${(row + 1).toString().padStart(2)} `;
-
-      for (let col = 0; col < size; col++) {
-        const cell = grid[row][col];
-        const symbol = materialSymbols[cell.material] || '❓';
-
-        // Mark laser entry point
-        if (puzzle.laserEntry.row === row && puzzle.laserEntry.col === col) {
-          visualization += ' 🔴';
-        } else {
-          visualization += ` ${symbol}`;
+        if (attempt < maxAttempts) {
+          await this.delay(this.config.retryDelayMs);
         }
       }
-      visualization += '\n';
     }
 
-    return visualization;
+    console.error(`Failed to generate unique ${difficulty} puzzle after ${maxAttempts} attempts`);
+    return null;
   }
 
   /**
-   * Get difficulty-based flair for posts
+   * Validate puzzle configuration and uniqueness
    */
-  private getDifficultyFlair(difficulty: DifficultyLevel): string {
-    const flairs = {
-      easy: 'Easy Puzzle',
-      medium: 'Medium Puzzle',
-      hard: 'Hard Puzzle',
+  async validatePuzzle(puzzle: PuzzleConfiguration): Promise<PuzzleValidationResult> {
+    const result: PuzzleValidationResult = {
+      isValid: false,
+      isUnique: false,
+      errors: [],
+      warnings: [],
+      similarPuzzles: [],
     };
-    return flairs[difficulty];
-  }
 
-  /**
-   * Get daily puzzles for a specific date
-   */
-  async getDailyPuzzles(date?: Date): Promise<DailyPuzzleSet | null> {
-    const targetDate = date || new Date();
-    const dateString = this.formatDate(targetDate);
-
-    return await this.redisManager.getDailyPuzzles(dateString);
-  }
-
-  /**
-   * Check if daily puzzles exist for a date
-   */
-  async dailyPuzzlesExist(date?: Date): Promise<boolean> {
-    const puzzles = await this.getDailyPuzzles(date);
-    return puzzles !== null;
-  }
-
-  /**
-   * Get user's daily progress
-   */
-  async getUserDailyProgress(userId: string, date?: Date): Promise<UserDailyProgress | null> {
-    const targetDate = date || new Date();
-    const dateString = this.formatDate(targetDate);
-
-    return await this.redisManager.getUserProgress(userId, dateString);
-  }
-
-  /**
-   * Update user's daily progress
-   */
-  async updateUserDailyProgress(
-    userId: string,
-    difficulty: DifficultyLevel,
-    completed: boolean,
-    score?: number,
-    date?: Date
-  ): Promise<void> {
-    const targetDate = date || new Date();
-    const dateString = this.formatDate(targetDate);
-
-    let progress = await this.redisManager.getUserProgress(userId, dateString);
-
-    if (!progress) {
-      progress = {
-        date: targetDate,
-        completed: {
-          easy: false,
-          medium: false,
-          hard: false,
-        },
-        scores: {},
-      };
-    }
-
-    progress.completed[difficulty] = completed;
-    if (
-      score !== undefined &&
-      (completed || !progress.scores[difficulty] || score > progress.scores[difficulty])
-    ) {
-      progress.scores[difficulty] = score;
-    }
-
-    await this.redisManager.storeUserProgress(userId, dateString, progress);
-  }
-
-  /**
-   * Get puzzle generation statistics
-   */
-  async getGenerationStats(): Promise<GenerationStats> {
     try {
-      const hashes = await this.redisManager.getAllPuzzleHashes();
-      const redisStats = await this.redisManager.getStats();
+      // Basic validation
+      if (
+        !puzzle.id ||
+        !puzzle.difficulty ||
+        !puzzle.grid ||
+        !puzzle.laserEntry ||
+        !puzzle.correctExit
+      ) {
+        result.errors.push('Missing required puzzle properties');
+        return result;
+      }
 
-      return {
-        totalPuzzlesGenerated: hashes.length,
-        dailyPuzzleSets: 0, // Would need to count daily puzzle sets
-        uniquenessRate: 0.95, // Placeholder - would calculate from generation logs
-        averageGenerationTime: 0, // Would track generation timing
-        lastGenerationDate: new Date(),
-      };
+      if (puzzle.grid.length === 0) {
+        result.errors.push('Empty puzzle grid');
+        return result;
+      }
+
+      // Check puzzle hash uniqueness
+      const puzzleHash = this.generatePuzzleHash(puzzle);
+      const hashKey = `puzzle:hash:${puzzleHash}`;
+      const exists = await redis.get(hashKey);
+
+      result.isValid = true;
+      result.isUnique = !exists;
+
+      if (exists) {
+        result.similarPuzzles.push(puzzleHash);
+        result.warnings.push('Puzzle hash matches existing puzzle');
+      }
+
+      return result;
     } catch (error) {
-      console.error('Error getting generation stats:', error);
+      console.error('Puzzle validation failed:', error);
+      result.errors.push(error instanceof Error ? error.message : 'Validation error');
+      return result;
+    }
+  }
+
+  /**
+   * Get daily puzzle set for a specific date
+   */
+  async getDailyPuzzles(dateString: string): Promise<DailyPuzzleSet | null> {
+    try {
+      const key = `daily:puzzles:${dateString}`;
+      const data = await redis.get(key);
+
+      if (!data) {
+        return null;
+      }
+
+      const puzzleSet = JSON.parse(data);
+      // Convert date string back to Date object
+      puzzleSet.date = new Date(puzzleSet.date);
+
+      return puzzleSet;
+    } catch (error) {
+      console.error('Failed to get daily puzzles:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Generate puzzles for the next N days
+   * Useful for pre-generating content
+   */
+  async generateUpcomingPuzzles(days: number = 7): Promise<{
+    successful: number;
+    failed: number;
+    results: GenerationResult[];
+  }> {
+    const results: GenerationResult[] = [];
+    let successful = 0;
+    let failed = 0;
+
+    console.log(`Generating puzzles for the next ${days} days...`);
+
+    for (let i = 0; i < days; i++) {
+      const targetDate = new Date();
+      targetDate.setDate(targetDate.getDate() + i);
+
+      try {
+        const result = await this.generateDailyPuzzles(targetDate);
+        results.push(result);
+
+        if (result.success) {
+          successful++;
+        } else {
+          failed++;
+        }
+
+        // Small delay between generations to avoid overwhelming the system
+        if (i < days - 1) {
+          await this.delay(500);
+        }
+      } catch (error) {
+        console.error(`Failed to generate puzzles for day ${i + 1}:`, error);
+        failed++;
+        results.push({
+          success: false,
+          errors: [error instanceof Error ? error.message : 'Unknown error'],
+          warnings: [],
+          generationTime: 0,
+          uniquenessChecks: {
+            easy: false,
+            medium: false,
+            hard: false,
+          },
+        });
+      }
+    }
+
+    console.log(`Upcoming puzzle generation complete: ${successful} successful, ${failed} failed`);
+
+    return {
+      successful,
+      failed,
+      results,
+    };
+  }
+
+  /**
+   * Get generation statistics
+   */
+  async getGenerationStats(): Promise<{
+    totalPuzzlesGenerated: number;
+    puzzlesByDifficulty: Record<DifficultyLevel, number>;
+    averageGenerationTime: number;
+    uniquenessRate: number;
+    lastGenerationDate: string | null;
+  }> {
+    try {
+      // This would typically query Redis for generation statistics
+      // For now, return default values
       return {
         totalPuzzlesGenerated: 0,
-        dailyPuzzleSets: 0,
-        uniquenessRate: 0,
+        puzzlesByDifficulty: {
+          easy: 0,
+          medium: 0,
+          hard: 0,
+        },
         averageGenerationTime: 0,
-        lastGenerationDate: new Date(),
+        uniquenessRate: 100,
+        lastGenerationDate: null,
+      };
+    } catch (error) {
+      console.error('Failed to get generation stats:', error);
+      return {
+        totalPuzzlesGenerated: 0,
+        puzzlesByDifficulty: {
+          easy: 0,
+          medium: 0,
+          hard: 0,
+        },
+        averageGenerationTime: 0,
+        uniquenessRate: 0,
+        lastGenerationDate: null,
       };
     }
+  }
+
+  /**
+   * Generate a simple hash for puzzle uniqueness checking
+   */
+  private generatePuzzleHash(puzzle: PuzzleConfiguration): string {
+    // Create a simple hash based on grid layout and laser entry
+    const gridString = puzzle.grid.map((row) => row.map((cell) => cell.material).join('')).join('');
+
+    const hashInput = `${gridString}_${puzzle.laserEntry.row}_${puzzle.laserEntry.col}_${puzzle.difficulty}`;
+
+    // Simple hash function (in production, use a proper hash library)
+    let hash = 0;
+    for (let i = 0; i < hashInput.length; i++) {
+      const char = hashInput.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+
+    return Math.abs(hash).toString(36);
   }
 
   /**
    * Format date as YYYY-MM-DD string
    */
-  private formatDate(date: Date): string {
+  private formatDateString(date: Date): string {
     return date.toISOString().split('T')[0];
   }
 
   /**
-   * Clean up old daily puzzles (keep last 30 days)
+   * Utility delay function
    */
-  async cleanupOldPuzzles(): Promise<void> {
-    try {
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
-      // In a real implementation, you would iterate through old dates
-      // and remove expired daily puzzle sets
-      console.log('Would clean up puzzles older than:', this.formatDate(thirtyDaysAgo));
-    } catch (error) {
-      console.error('Error cleaning up old puzzles:', error);
-    }
+  /**
+   * Get configuration
+   */
+  getConfig(): DailyGenerationConfig {
+    return { ...this.config };
+  }
+
+  /**
+   * Update configuration
+   */
+  updateConfig(newConfig: Partial<DailyGenerationConfig>): void {
+    this.config = { ...this.config, ...newConfig };
+    console.log('Updated daily puzzle generator configuration');
   }
 }
 
-// Type definitions
-interface GenerationStats {
-  totalPuzzlesGenerated: number;
-  dailyPuzzleSets: number;
-  uniquenessRate: number;
-  averageGenerationTime: number;
-  lastGenerationDate: Date;
-}
+// Export singleton instance
+export const dailyPuzzleGenerator = new DailyPuzzleGenerator();

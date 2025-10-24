@@ -16,22 +16,48 @@
   "media": {
     "dir": "assets"
   },
-  "permissions": ["redis", "posts", "comments", "users", "moderation"],
+  "permissions": {
+    "redis": true
+  },
+  "http": {
+    "domains": ["example.com", "api.example.com"]
+  },
   "menu": {
     "items": [
       {
-        "label": "Create Logic Reflections Puzzle",
-        "description": "Create a new daily puzzle post",
-        "location": "subreddit",
-        "forUserType": "moderator",
-        "endpoint": "/internal/menu/post-create"
-      },
-      {
         "label": "Generate Daily Puzzles",
-        "description": "Generate today's three difficulty puzzles",
+        "description": "Generate today's three difficulty puzzles (Easy, Medium, Hard)",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/generate-daily"
+      },
+      {
+        "label": "Filter: Easy Puzzles",
+        "description": "Navigate to Easy difficulty puzzles",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/filter-easy"
+      },
+      {
+        "label": "Filter: Medium Puzzles",
+        "description": "Navigate to Medium difficulty puzzles",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/filter-medium"
+      },
+      {
+        "label": "Filter: Hard Puzzles",
+        "description": "Navigate to Hard difficulty puzzles",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/filter-hard"
+      },
+      {
+        "label": "View Yesterday's Leaderboard",
+        "description": "Show leaderboard results for yesterday's puzzles",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/yesterday-leaderboard"
       }
     ]
   },

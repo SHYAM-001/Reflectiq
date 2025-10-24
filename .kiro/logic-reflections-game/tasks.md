@@ -7,7 +7,7 @@
   - Set up Devvit configuration for Reddit integration and permissions
   - _Requirements: 6.1, 6.2_
 
-- [x] 2. Implement laser physics engine and puzzle generation
+- [ ] 2. Implement laser physics engine and puzzle generation
 
   - [x] 2.1 Create laser beam simulation logic
 
@@ -31,21 +31,22 @@
 
 - [ ] 3. Create core game UI components
 
-  - [ ] 3.1 Implement PuzzleGrid component
+  - [x] 3.1 Implement PuzzleGrid component
 
     - Render grid with material-specific colors and visual indicators
     - Display laser entry point with clear visual marker
     - Handle cell hover interactions for material inspection
     - _Requirements: 1.1, 1.2, 4.1, 4.2, 4.3, 4.4, 4.5_
 
-  - [ ] 3.2 Build HintSystem component
+  - [x] 3.2 Build HintSystem component
 
     - Create hint buttons with usage tracking
     - Implement quadrant-based laser path animation
     - Display score penalty calculations in real-time
     - _Requirements: 2.1, 2.2, 2.3, 2.4, 2.5_
 
-  - [ ] 3.3 Develop GameTimer component
+  - [x] 3.3 Develop GameTimer component
+
     - Implement precise timing with millisecond accuracy
     - Create visual countdown display
     - Handle timer start/stop based on game events
@@ -53,14 +54,14 @@
 
 - [ ] 4. Implement server-side game logic
 
-  - [ ] 4.1 Create GameEngine service
+  - [x] 4.1 Create GameEngine service
 
     - Build puzzle generation API endpoints
     - Implement answer validation logic
     - Create score calculation with hint and time multipliers
     - _Requirements: 5.1, 5.2, 3.5_
 
-  - [ ] 4.2 Build Redis data management
+  - [x] 4.2 Build Redis data management
 
     - Set up puzzle storage and retrieval
     - Implement leaderboard data structures
@@ -72,19 +73,20 @@
     - Validate score calculations across scenarios
     - _Requirements: 5.1, 5.2, 5.5_
 
-- [ ] 5. Implement Reddit comment integration
+- [ ] 5. Implement game submission and scoring system
 
-  - [ ] 5.1 Create CommentMonitor service
+  - [ ] 5.1 Create GameSubmission service
 
-    - Set up Reddit API comment watching
-    - Implement answer format parsing and validation
-    - Ensure private comment visibility settings
+    - Set up in-game answer submission endpoints
+    - Implement answer validation and scoring logic
+    - Create immediate feedback system for players
     - _Requirements: 3.2, 3.3, 3.5_
 
-  - [ ] 5.2 Build answer submission workflow
-    - Create comment processing pipeline
-    - Implement automatic timer stopping on valid submission
-    - Trigger score calculation and leaderboard updates
+  - [x] 5.2 Build leaderboard integration workflow
+
+    - Create real-time leaderboard updates
+    - Implement score calculation and ranking
+    - Add post-game statistics and feedback
     - _Requirements: 3.4, 5.4, 5.5_
 
 - [ ] 6. Develop daily puzzle generation system
@@ -163,15 +165,25 @@
 
 - [ ] 10. Deploy and configure production environment
 
-  - [ ] 10.1 Set up Devvit app configuration
+  - [ ] 10.1 Set up Devvit Web configuration
 
-    - Configure Reddit app permissions and capabilities
-    - Set up production Redis instance
-    - Configure automated daily puzzle scheduling
+    - Configure devvit.json with proper permissions (redis: true)
+    - Set up post and server entrypoints
+    - Configure menu actions for moderators
+    - Add triggers for app installation and events
     - _Requirements: 6.1, 6.2, 6.5_
 
-  - [ ] 10.2 Create engaging splash screen
-    - Design visually appealing game preview
-    - Add "Play" button with clear call-to-action
-    - Implement smooth transition to full-screen game
+  - [ ] 10.2 Create engaging splash screen using Devvit capabilities
+
+    - Design splash screen using Devvit splash screen feature
+    - Add difficulty selection and game preview
+    - Implement smooth transition to full-screen webview
+    - Ensure mobile-responsive design for Reddit apps
     - _Requirements: 6.3_
+
+  - [ ] 10.3 Prepare for Reddit app review
+    - Ensure compliance with Devvit Rules and Reddit policies
+    - Test app thoroughly across different subreddits
+    - Prepare detailed app description for review process
+    - Validate all user-generated content handling
+    - _Requirements: 6.1, 6.2_

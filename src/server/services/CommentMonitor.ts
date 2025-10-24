@@ -37,7 +37,6 @@ export class CommentMonitor {
       if (!parsedAnswer || !isValidAnswerFormat(parsedAnswer)) {
         // Not a valid answer format, ignore
         return null;
-      }n null;
       }
 
       console.log('Valid answer format detected:', {

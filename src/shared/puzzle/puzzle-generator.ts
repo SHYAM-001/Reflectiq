@@ -1,10 +1,10 @@
-// Puzzle generator for Logic Reflections game
+// Puzzle generator optimized for Devvit Web serverless environment
 
 import type {
   PuzzleConfiguration,
+  DifficultyLevel,
   GridCell,
   Coordinate,
-  DifficultyLevel,
   MaterialType,
 } from '../types/game.js';
 import {
@@ -14,73 +14,111 @@ import {
   MATERIAL_COLORS,
   REFLECTION_BEHAVIORS,
 } from '../constants.js';
-import { generatePuzzleId, createCoordinate, generateGridHash } from '../utils.js';
-import { LaserEngine, PathValidator } from '../physics/index.js';
+import { LaserEngine } from '../physics/laser-engine.js';
+import { PathValidator } from '../physics/path-validator.js';
+
+export interface GenerationConfig {
+  difficulty: DifficultyLevel;
+  maxAttempts: number;
+  materialDensity: number;
+  ensureUniqueness: boolean;
+}
 
 export class PuzzleGenerator {
-  private static generatedHashes = new Set<string>();
+  private laserEngine: LaserEngine;
+  private pathValidator: PathValidator;
+  private maxGenerationTime = 25000; // 25 seconds max for Devvit Web timeout
 
-  /**
-   * Generate a new puzzle for the specified difficulty
-   */
-  static generatePuzzle(difficulty: DifficultyLevel): PuzzleConfiguration {
-    const maxAttempts = 100;
-    let attempts = 0;
-
-    while (attempts < maxAttempts) {
-      attempts++;
-
-      const puzzle = this.createPuzzleAttempt(difficulty);
-      const validation = PathValidator.validatePuzzleSolvability(
-        puzzle.grid,
-        puzzle.laserEntry,
-        difficulty
-      );
-
-      if (validation.isValid && validation.exitPoint) {
-        // Check complexity matches difficulty
-        const complexity = PathValidator.calculateComplexity(validation.laserPath!, puzzle.grid);
-
-        if (PathValidator.validateDifficultyLevel(complexity, difficulty)) {
-          // Check uniqueness
-          const gridHash = generateGridHash(puzzle.grid);
-
-          if (!this.generatedHashes.has(gridHash)) {
-            this.generatedHashes.add(gridHash);
-
-            return {
-              ...puzzle,
-              correctExit: validation.exitPoint,
-            };
-          }
-        }
-      }
-    }
-
-    // Fallback: generate a simple valid puzzle
-    return this.generateFallbackPuzzle(difficulty);
+  constructor() {
+    this.laserEngine = new LaserEngine();
+    this.pathValidator = new PathValidator();
   }
 
   /**
-   * Create a puzzle attempt with random material placement
+   * Generate a new puzzle with specified difficulty
+   * Optimized for Devvit Web's 30-second timeout constraint
    */
-  private static createPuzzleAttempt(
-    difficulty: DifficultyLevel
-  ): Omit<PuzzleConfiguration, 'correctExit'> {
+  async generatePuzzle(config: GenerationConfig): Promise<PuzzleConfiguration> {
+    const startTime = Date.now();
+    const { difficulty, maxAttempts = 100 } = config;
+
+    let attempts = 0;
+    let bestPuzzle: PuzzleConfiguration | null = null;
+    let bestComplexity = 0;
+
+    while (attempts < maxAttempts && Date.now() - startTime < this.maxGenerationTime) {
+      attempts++;
+
+      try {
+        const puzzle = this.createBasePuzzle(difficulty);
+        this.populateGrid(puzzle, config);
+
+        // Validate the puzzle
+        const validation = this.pathValidator.validatePuzzleIntegrity(puzzle);
+
+        if (validation.isValid) {
+          // Calculate puzzle complexity for quality assessment
+          const path = this.laserEngine.simulateLaserPath(puzzle);
+          const complexity = this.calculatePuzzleComplexity(path, puzzle);
+
+          // Keep the best puzzle found so far
+          if (complexity > bestComplexity) {
+            bestPuzzle = puzzle;
+            bestComplexity = complexity;
+          }
+
+          // If we found a good enough puzzle, return it
+          if (complexity >= this.getMinComplexity(difficulty)) {
+            return puzzle;
+          }
+        }
+      } catch (error) {
+        // Continue to next attempt on error
+        console.warn(`Puzzle generation attempt ${attempts} failed:`, error);
+      }
+    }
+
+    // Return the best puzzle found, or throw if none found
+    if (bestPuzzle) {
+      return bestPuzzle;
+    }
+
+    throw new Error(`Failed to generate valid puzzle after ${attempts} attempts`);
+  }
+
+  /**
+   * Create base puzzle structure with empty grid
+   */
+  private createBasePuzzle(difficulty: DifficultyLevel): PuzzleConfiguration {
     const gridSize = GRID_SIZES[difficulty];
-    const grid = this.initializeEmptyGrid(gridSize);
+    const grid: GridCell[][] = [];
 
-    // Place materials based on difficulty
-    this.placeMaterials(grid, difficulty);
+    // Initialize empty grid
+    for (let row = 0; row < gridSize; row++) {
+      grid[row] = [];
+      for (let col = 0; col < gridSize; col++) {
+        grid[row][col] = {
+          material: 'empty',
+          coordinate: {
+            row,
+            col,
+            label: this.coordinateToLabel(row, col),
+          },
+          color: MATERIAL_COLORS.empty,
+          reflectionBehavior: REFLECTION_BEHAVIORS.empty,
+        };
+      }
+    }
 
-    // Generate entry point
-    const laserEntry = this.generateEntryPoint(difficulty);
+    // Generate laser entry point (always on grid edge)
+    const laserEntry = this.generateLaserEntry(gridSize);
 
     return {
-      id: generatePuzzleId(),
+      id: `puzzle_${difficulty}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       difficulty,
       grid,
       laserEntry,
+      correctExit: { row: 0, col: 0, label: 'A1' }, // Will be calculated after population
       maxTime: MAX_TIME_LIMITS[difficulty],
       baseScore: BASE_SCORES[difficulty],
       createdAt: new Date(),
@@ -88,250 +126,345 @@ export class PuzzleGenerator {
   }
 
   /**
-   * Initialize empty grid with all cells as 'empty'
+   * Populate grid with materials based on difficulty
    */
-  private static initializeEmptyGrid(gridSize: number): GridCell[][] {
-    const grid: GridCell[][] = [];
+  private populateGrid(puzzle: PuzzleConfiguration, config: GenerationConfig): void {
+    const { difficulty, materialDensity = 0.3 } = config;
+    const gridSize = puzzle.grid.length;
 
-    for (let row = 0; row < gridSize; row++) {
-      grid[row] = [];
-      for (let col = 0; col < gridSize; col++) {
-        grid[row][col] = this.createGridCell('empty', row, col);
+    // Calculate number of materials to place
+    const totalCells = gridSize * gridSize;
+    const materialCount = Math.floor(totalCells * materialDensity);
+
+    // Material distribution based on difficulty
+    const materialDistribution = this.getMaterialDistribution(difficulty);
+
+    // Place materials randomly
+    const placedPositions = new Set<string>();
+    let materialsPlaced = 0;
+
+    while (materialsPlaced < materialCount) {
+      const row = Math.floor(Math.random() * gridSize);
+      const col = Math.floor(Math.random() * gridSize);
+      const posKey = `${row},${col}`;
+
+      // Skip if position already used or is laser entry
+      if (placedPositions.has(posKey) || this.isLaserEntryPosition(row, col, puzzle.laserEntry)) {
+        continue;
       }
+
+      // Select material type based on distribution
+      const materialType = this.selectMaterialType(materialDistribution);
+
+      // Place the material
+      this.placeMaterial(puzzle.grid, row, col, materialType);
+      placedPositions.add(posKey);
+      materialsPlaced++;
     }
 
-    return grid;
+    // Calculate correct exit after placing materials
+    puzzle.correctExit = this.calculateCorrectExit(puzzle);
   }
 
   /**
-   * Create a grid cell with specified material
+   * Get material distribution for difficulty level
    */
-  private static createGridCell(material: MaterialType, row: number, col: number): GridCell {
-    return {
+  private getMaterialDistribution(difficulty: DifficultyLevel): Record<MaterialType, number> {
+    const distributions = {
+      easy: {
+        mirror: 0.6,
+        water: 0.2,
+        glass: 0.1,
+        metal: 0.05,
+        absorber: 0.05,
+        empty: 0,
+      },
+      medium: {
+        mirror: 0.4,
+        water: 0.25,
+        glass: 0.2,
+        metal: 0.1,
+        absorber: 0.05,
+        empty: 0,
+      },
+      hard: {
+        mirror: 0.3,
+        water: 0.25,
+        glass: 0.25,
+        metal: 0.15,
+        absorber: 0.05,
+        empty: 0,
+      },
+    };
+
+    return distributions[difficulty];
+  }
+
+  /**
+   * Select material type based on weighted distribution
+   */
+  private selectMaterialType(distribution: Record<MaterialType, number>): MaterialType {
+    const random = Math.random();
+    let cumulative = 0;
+
+    for (const [material, weight] of Object.entries(distribution)) {
+      cumulative += weight;
+      if (random <= cumulative) {
+        return material as MaterialType;
+      }
+    }
+
+    return 'mirror'; // Fallback
+  }
+
+  /**
+   * Place material at specific grid position
+   */
+  private placeMaterial(
+    grid: GridCell[][],
+    row: number,
+    col: number,
+    material: MaterialType
+  ): void {
+    grid[row][col] = {
       material,
-      coordinate: createCoordinate(row, col),
+      coordinate: {
+        row,
+        col,
+        label: this.coordinateToLabel(row, col),
+      },
       color: MATERIAL_COLORS[material],
       reflectionBehavior: REFLECTION_BEHAVIORS[material],
     };
   }
 
   /**
-   * Place materials in the grid based on difficulty
+   * Generate laser entry point on grid edge
    */
-  private static placeMaterials(grid: GridCell[][], difficulty: DifficultyLevel): void {
-    const gridSize = grid.length;
-    const materialCounts = this.getMaterialCounts(difficulty);
+  private generateLaserEntry(gridSize: number): Coordinate {
+    const edges = [
+      // Top edge
+      ...Array.from({ length: gridSize }, (_, i) => ({ row: 0, col: i })),
+      // Bottom edge
+      ...Array.from({ length: gridSize }, (_, i) => ({ row: gridSize - 1, col: i })),
+      // Left edge (excluding corners)
+      ...Array.from({ length: gridSize - 2 }, (_, i) => ({ row: i + 1, col: 0 })),
+      // Right edge (excluding corners)
+      ...Array.from({ length: gridSize - 2 }, (_, i) => ({ row: i + 1, col: gridSize - 1 })),
+    ];
 
-    // Place mirrors
-    this.placeMaterialType(grid, 'mirror', materialCounts.mirrors);
+    const randomEdge = edges[Math.floor(Math.random() * edges.length)];
 
-    // Place additional materials based on difficulty
-    if (difficulty !== 'easy') {
-      this.placeMaterialType(grid, 'water', materialCounts.water);
-      this.placeMaterialType(grid, 'absorber', materialCounts.absorbers);
-    }
-
-    if (difficulty === 'hard') {
-      this.placeMaterialType(grid, 'glass', materialCounts.glass);
-      this.placeMaterialType(grid, 'metal', materialCounts.metal);
-    }
+    return {
+      row: randomEdge.row,
+      col: randomEdge.col,
+      label: this.coordinateToLabel(randomEdge.row, randomEdge.col),
+    };
   }
 
   /**
-   * Get material counts for each difficulty level
+   * Check if position is the laser entry position
    */
-  private static getMaterialCounts(difficulty: DifficultyLevel): MaterialCounts {
-    const gridSize = GRID_SIZES[difficulty];
-    const totalCells = gridSize * gridSize;
-
-    switch (difficulty) {
-      case 'easy':
-        return {
-          mirrors: Math.floor(totalCells * 0.15), // 15% mirrors
-          water: 0,
-          glass: 0,
-          metal: 0,
-          absorbers: Math.floor(totalCells * 0.05), // 5% absorbers
-        };
-
-      case 'medium':
-        return {
-          mirrors: Math.floor(totalCells * 0.12),
-          water: Math.floor(totalCells * 0.08),
-          glass: 0,
-          metal: 0,
-          absorbers: Math.floor(totalCells * 0.08),
-        };
-
-      case 'hard':
-        return {
-          mirrors: Math.floor(totalCells * 0.1),
-          water: Math.floor(totalCells * 0.08),
-          glass: Math.floor(totalCells * 0.06),
-          metal: Math.floor(totalCells * 0.04),
-          absorbers: Math.floor(totalCells * 0.1),
-        };
-
-      default:
-        return { mirrors: 0, water: 0, glass: 0, metal: 0, absorbers: 0 };
-    }
+  private isLaserEntryPosition(row: number, col: number, laserEntry: Coordinate): boolean {
+    return row === laserEntry.row && col === laserEntry.col;
   }
 
   /**
-   * Place a specific material type randomly in the grid
+   * Calculate correct exit point by simulating laser path
    */
-  private static placeMaterialType(
-    grid: GridCell[][],
-    material: MaterialType,
-    count: number
-  ): void {
-    const gridSize = grid.length;
-    let placed = 0;
-    const maxAttempts = count * 10;
-    let attempts = 0;
+  private calculateCorrectExit(puzzle: PuzzleConfiguration): Coordinate {
+    const path = this.laserEngine.simulateLaserPath(puzzle);
 
-    while (placed < count && attempts < maxAttempts) {
-      attempts++;
+    if (!path.exitPoint) {
+      throw new Error('Generated puzzle has no valid exit point');
+    }
 
-      const row = Math.floor(Math.random() * gridSize);
-      const col = Math.floor(Math.random() * gridSize);
+    return path.exitPoint;
+  }
 
-      // Only place on empty cells
-      if (grid[row][col].material === 'empty') {
-        grid[row][col] = this.createGridCell(material, row, col);
-        placed++;
+  /**
+   * Calculate puzzle complexity for quality assessment
+   */
+  private calculatePuzzleComplexity(path: any, puzzle: PuzzleConfiguration): number {
+    let complexity = 0;
+
+    // Base complexity from path length
+    complexity += path.segments.length * 2;
+
+    // Bonus for material interactions
+    const materialInteractions = path.segments.filter((s: any) => s.material !== 'empty').length;
+    complexity += materialInteractions * 3;
+
+    // Bonus for direction changes
+    let directionChanges = 0;
+    for (let i = 1; i < path.segments.length; i++) {
+      if (path.segments[i].direction !== path.segments[i - 1].direction) {
+        directionChanges++;
       }
     }
+    complexity += directionChanges * 4;
+
+    // Penalty for too simple or too complex paths
+    const idealLength = puzzle.grid.length * 1.5;
+    const lengthDiff = Math.abs(path.segments.length - idealLength);
+    complexity -= lengthDiff * 2;
+
+    return Math.max(0, complexity);
   }
 
   /**
-   * Generate a random entry point on the grid boundary
+   * Get minimum complexity threshold for difficulty
    */
-  private static generateEntryPoint(difficulty: DifficultyLevel): Coordinate {
-    const gridSize = GRID_SIZES[difficulty];
-    const edge = Math.floor(Math.random() * 4); // 0: top, 1: right, 2: bottom, 3: left
-
-    switch (edge) {
-      case 0: // Top edge
-        return createCoordinate(0, Math.floor(Math.random() * gridSize));
-      case 1: // Right edge
-        return createCoordinate(Math.floor(Math.random() * gridSize), gridSize - 1);
-      case 2: // Bottom edge
-        return createCoordinate(gridSize - 1, Math.floor(Math.random() * gridSize));
-      case 3: // Left edge
-        return createCoordinate(Math.floor(Math.random() * gridSize), 0);
-      default:
-        return createCoordinate(0, 0);
-    }
-  }
-
-  /**
-   * Generate a fallback puzzle that's guaranteed to be solvable
-   */
-  private static generateFallbackPuzzle(difficulty: DifficultyLevel): PuzzleConfiguration {
-    const gridSize = GRID_SIZES[difficulty];
-    const grid = this.initializeEmptyGrid(gridSize);
-
-    // Create a simple path with minimal materials
-    const laserEntry = createCoordinate(0, 0);
-
-    // Place a single mirror to create a simple reflection
-    if (gridSize > 2) {
-      grid[1][1] = this.createGridCell('mirror', 1, 1);
-    }
-
-    // Simulate to find exit
-    const initialDirection = LaserEngine.getEntryDirection(laserEntry, difficulty);
-    const laserPath = LaserEngine.simulateLaserPath(grid, laserEntry, initialDirection, difficulty);
-
-    return {
-      id: generatePuzzleId(),
-      difficulty,
-      grid,
-      laserEntry,
-      correctExit: laserPath.exitPoint || createCoordinate(-1, 0),
-      maxTime: MAX_TIME_LIMITS[difficulty],
-      baseScore: BASE_SCORES[difficulty],
-      createdAt: new Date(),
+  private getMinComplexity(difficulty: DifficultyLevel): number {
+    const thresholds = {
+      easy: 15,
+      medium: 25,
+      hard: 40,
     };
+    return thresholds[difficulty];
   }
 
   /**
-   * Validate puzzle uniqueness against historical puzzles
+   * Generate puzzle hash for uniqueness checking
+   * Optimized for Redis storage in Devvit Web
    */
-  static validateUniqueness(puzzle: PuzzleConfiguration): boolean {
-    const gridHash = generateGridHash(puzzle.grid);
-    return !this.generatedHashes.has(gridHash);
+  generatePuzzleHash(puzzle: PuzzleConfiguration): string {
+    // Create a simplified representation for hashing
+    const gridHash = puzzle.grid
+      .map((row) => row.map((cell) => cell.material.charAt(0)).join(''))
+      .join('|');
+
+    const entryHash = `${puzzle.laserEntry.row},${puzzle.laserEntry.col}`;
+    const exitHash = `${puzzle.correctExit.row},${puzzle.correctExit.col}`;
+
+    // Combine all elements and create hash
+    const combined = `${gridHash}:${entryHash}:${exitHash}:${puzzle.difficulty}`;
+
+    // Simple hash function (for Devvit Web compatibility)
+    let hash = 0;
+    for (let i = 0; i < combined.length; i++) {
+      const char = combined.charCodeAt(i);
+      hash = (hash << 5) - hash + char;
+      hash = hash & hash; // Convert to 32-bit integer
+    }
+
+    return Math.abs(hash).toString(36);
   }
 
   /**
-   * Add puzzle hash to uniqueness tracking
+   * Validate puzzle uniqueness against existing puzzles
+   * Optimized for Redis queries in Devvit Web
    */
-  static addToUniquenessList(puzzle: PuzzleConfiguration): void {
-    const gridHash = generateGridHash(puzzle.grid);
-    this.generatedHashes.add(gridHash);
+  async validateUniqueness(
+    puzzle: PuzzleConfiguration,
+    existingHashes: Set<string>
+  ): Promise<boolean> {
+    const puzzleHash = this.generatePuzzleHash(puzzle);
+    return !existingHashes.has(puzzleHash);
   }
 
   /**
-   * Load historical puzzle hashes for uniqueness checking
+   * Generate multiple puzzle variations
+   * Useful for daily puzzle generation
    */
-  static loadHistoricalHashes(hashes: string[]): void {
-    hashes.forEach((hash) => this.generatedHashes.add(hash));
+  async generatePuzzleSet(
+    difficulties: DifficultyLevel[],
+    existingHashes: Set<string> = new Set()
+  ): Promise<PuzzleConfiguration[]> {
+    const puzzles: PuzzleConfiguration[] = [];
+
+    for (const difficulty of difficulties) {
+      const config: GenerationConfig = {
+        difficulty,
+        maxAttempts: 50,
+        materialDensity: this.getMaterialDensity(difficulty),
+        ensureUniqueness: true,
+      };
+
+      let attempts = 0;
+      let puzzle: PuzzleConfiguration | null = null;
+
+      while (attempts < 10 && !puzzle) {
+        attempts++;
+        try {
+          const candidate = await this.generatePuzzle(config);
+          const isUnique = await this.validateUniqueness(candidate, existingHashes);
+
+          if (isUnique) {
+            puzzle = candidate;
+            existingHashes.add(this.generatePuzzleHash(candidate));
+          }
+        } catch (error) {
+          console.warn(`Failed to generate ${difficulty} puzzle, attempt ${attempts}:`, error);
+        }
+      }
+
+      if (puzzle) {
+        puzzles.push(puzzle);
+      } else {
+        throw new Error(`Failed to generate unique ${difficulty} puzzle`);
+      }
+    }
+
+    return puzzles;
   }
 
   /**
-   * Generate multiple puzzles for daily set
+   * Get material density based on difficulty
    */
-  static generateDailyPuzzleSet(): {
-    easy: PuzzleConfiguration;
-    medium: PuzzleConfiguration;
-    hard: PuzzleConfiguration;
+  private getMaterialDensity(difficulty: DifficultyLevel): number {
+    const densities = {
+      easy: 0.25,
+      medium: 0.35,
+      hard: 0.45,
+    };
+    return densities[difficulty];
+  }
+
+  /**
+   * Convert row/col to coordinate label
+   */
+  private coordinateToLabel(row: number, col: number): string {
+    const colLetter = String.fromCharCode(65 + col);
+    const rowNumber = row + 1;
+    return `${colLetter}${rowNumber}`;
+  }
+
+  /**
+   * Create puzzle preview data for client rendering
+   * Optimized for Devvit Web's payload size limits
+   */
+  createPuzzlePreview(puzzle: PuzzleConfiguration): {
+    id: string;
+    difficulty: DifficultyLevel;
+    gridSize: number;
+    materialCount: number;
+    estimatedComplexity: number;
+    previewGrid: string[][];
   } {
-    return {
-      easy: this.generatePuzzle('easy'),
-      medium: this.generatePuzzle('medium'),
-      hard: this.generatePuzzle('hard'),
-    };
-  }
+    const gridSize = puzzle.grid.length;
+    let materialCount = 0;
 
-  /**
-   * Test puzzle solvability with multiple entry points
-   */
-  static testPuzzleRobustness(puzzle: PuzzleConfiguration): RobustnessResult {
-    const testEntryPoints = PathValidator.generateTestEntryPoints(puzzle.difficulty);
-    const results: boolean[] = [];
+    // Create simplified preview grid
+    const previewGrid = puzzle.grid.map((row) =>
+      row.map((cell) => {
+        if (cell.material !== 'empty') {
+          materialCount++;
+        }
+        return cell.material.charAt(0).toUpperCase();
+      })
+    );
 
-    for (const entryPoint of testEntryPoints) {
-      const isUnique = PathValidator.validateUniqueSolution(
-        puzzle.grid,
-        entryPoint,
-        puzzle.difficulty
-      );
-      results.push(isUnique);
-    }
-
-    const successRate = results.filter((r) => r).length / results.length;
+    // Estimate complexity without full simulation
+    const estimatedComplexity = materialCount * 2 + gridSize;
 
     return {
-      totalTests: results.length,
-      successfulTests: results.filter((r) => r).length,
-      successRate,
-      isRobust: successRate >= 0.8, // 80% success rate threshold
+      id: puzzle.id,
+      difficulty: puzzle.difficulty,
+      gridSize,
+      materialCount,
+      estimatedComplexity,
+      previewGrid,
     };
   }
-}
-
-interface MaterialCounts {
-  mirrors: number;
-  water: number;
-  glass: number;
-  metal: number;
-  absorbers: number;
-}
-
-export interface RobustnessResult {
-  totalTests: number;
-  successfulTests: number;
-  successRate: number;
-  isRobust: boolean;
 }

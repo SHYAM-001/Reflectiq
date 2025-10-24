@@ -1,394 +1,521 @@
-// Redis data management service for Logic Reflections
+import { redis } from '@devvit/web/server';
+import type { DifficultyLevel } from './GameEngine.js';
 
-import type {
-  PuzzleConfiguration,
-  LeaderboardEntry,
-  DifficultyLevel,
-  GameSession,
-} from '../../shared/types/game.js';
-import type { DailyPuzzleSet, UserDailyProgress } from '../../shared/types/daily-puzzles.js';
-
-// Note: In a real Devvit app, we would import the Redis client from Devvit SDK
-// For now, we'll define the interface and implement the logic
-interface RedisClient {
-  set(key: string, value: string, options?: { ex?: number }): Promise<void>;
-  get(key: string): Promise<string | null>;
-  del(key: string): Promise<number>;
-  zadd(key: string, score: number, member: string): Promise<number>;
-  zrevrange(key: string, start: number, stop: number, withScores?: boolean): Promise<string[]>;
-  zrank(key: string, member: string): Promise<number | null>;
-  zcard(key: string): Promise<number>;
-  hset(key: string, field: string, value: string): Promise<number>;
-  hget(key: string, field: string): Promise<string | null>;
-  hgetall(key: string): Promise<Record<string, string>>;
-  hdel(key: string, field: string): Promise<number>;
-  exists(key: string): Promise<number>;
-  expire(key: string, seconds: number): Promise<number>;
+// Types for Redis data management
+export interface LeaderboardEntry {
+  rank: number;
+  username: string;
+  difficulty: DifficultyLevel;
+  timeElapsed: number;
+  hintsUsed: number;
+  finalScore: number;
+  timestamp: Date;
+  userId: string;
 }
 
+export interface UserProgress {
+  userId: string;
+  totalGamesPlayed: number;
+  totalScore: number;
+  bestScores: {
+    easy: number;
+    medium: number;
+    hard: number;
+  };
+  averageTime: {
+    easy: number;
+    medium: number;
+    hard: number;
+  };
+  hintsUsageStats: {
+    totalHintsUsed: number;
+    averageHintsPerGame: number;
+  };
+  lastPlayedDate: Date;
+}
+
+export interface GameSession {
+  sessionId: string;
+  puzzleId: string;
+  userId: string;
+  startTime: Date;
+  difficulty: DifficultyLevel;
+  hintsUsed: number[];
+  isActive: boolean;
+  lastActivity: Date;
+}
+
+export interface PuzzleMetadata {
+  puzzleId: string;
+  difficulty: DifficultyLevel;
+  createdAt: Date;
+  totalAttempts: number;
+  successfulAttempts: number;
+  averageTime: number;
+  averageHints: number;
+}
+
+/**
+ * RedisManager service for handling all Redis operations
+ * Following Devvit Web patterns with proper data isolation per subreddit
+ */
 export class RedisManager {
-  private redis: RedisClient;
+  // Redis key prefixes for data organization
+  private static readonly KEYS = {
+    PUZZLE: 'puzzle:',
+    LEADERBOARD: 'leaderboard:',
+    USER_PROGRESS: 'user:progress:',
+    GAME_SESSION: 'session:',
+    PUZZLE_METADATA: 'puzzle:meta:',
+    DAILY_PUZZLES: 'daily:puzzles:',
+    HINT_USAGE: 'hints:',
+    GLOBAL_STATS: 'stats:global',
+  };
 
-  constructor(redisClient: RedisClient) {
-    this.redis = redisClient;
-  }
-
-  // Redis key generators
-  private getPuzzleKey(puzzleId: string): string {
-    return `puzzle:${puzzleId}`;
-  }
-
-  private getSessionKey(sessionId: string): string {
-    return `session:${sessionId}`;
-  }
-
-  private getLeaderboardKey(difficulty: DifficultyLevel): string {
-    return `leaderboard:${difficulty}`;
-  }
-
-  private getDailyPuzzleKey(date: string): string {
-    return `daily:${date}`;
-  }
-
-  private getUserProgressKey(userId: string, date: string): string {
-    return `progress:${userId}:${date}`;
-  }
-
-  private getHintUsageKey(puzzleId: string, userId: string): string {
-    return `hints:${puzzleId}:${userId}`;
-  }
-
-  private getPuzzleHashKey(): string {
-    return 'puzzle:hashes';
-  }
+  // Leaderboard size limits
+  private static readonly LEADERBOARD_MAX_SIZE = 100;
+  private static readonly SESSION_EXPIRY = 3600; // 1 hour in seconds
 
   /**
-   * Store puzzle configuration
+   * Store puzzle configuration in Redis with expiration
    */
-  async storePuzzle(puzzleId: string, config: PuzzleConfiguration): Promise<void> {
-    const key = this.getPuzzleKey(puzzleId);
-    const value = JSON.stringify(config);
+  async storePuzzle(puzzleId: string, puzzleData: any): Promise<void> {
+    const key = RedisManager.KEYS.PUZZLE + puzzleId;
 
-    // Store with 24 hour expiration
-    await this.redis.set(key, value, { ex: 24 * 60 * 60 });
+    // Store puzzle with 24-hour expiration
+    await redis.setEx(key, 86400, JSON.stringify(puzzleData));
+
+    // Update puzzle metadata
+    await this.updatePuzzleMetadata(puzzleId, puzzleData.difficulty);
   }
 
   /**
-   * Retrieve puzzle configuration
+   * Retrieve puzzle configuration from Redis
    */
-  async getPuzzle(puzzleId: string): Promise<PuzzleConfiguration | null> {
-    const key = this.getPuzzleKey(puzzleId);
-    const value = await this.redis.get(key);
+  async getPuzzle(puzzleId: string): Promise<any | null> {
+    const key = RedisManager.KEYS.PUZZLE + puzzleId;
+    const data = await redis.get(key);
 
-    if (!value) return null;
-
-    try {
-      return JSON.parse(value) as PuzzleConfiguration;
-    } catch (error) {
-      console.error('Error parsing puzzle data:', error);
-      return null;
-    }
+    return data ? JSON.parse(data) : null;
   }
 
   /**
-   * Store game session
-   */
-  async storeSession(sessionId: string, session: GameSession): Promise<void> {
-    const key = this.getSessionKey(sessionId);
-    const value = JSON.stringify(session);
-
-    // Store with 2 hour expiration
-    await this.redis.set(key, value, { ex: 2 * 60 * 60 });
-  }
-
-  /**
-   * Retrieve game session
-   */
-  async getSession(sessionId: string): Promise<GameSession | null> {
-    const key = this.getSessionKey(sessionId);
-    const value = await this.redis.get(key);
-
-    if (!value) return null;
-
-    try {
-      const session = JSON.parse(value) as GameSession;
-      // Convert startTime back to Date object
-      session.startTime = new Date(session.startTime);
-      return session;
-    } catch (error) {
-      console.error('Error parsing session data:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Update leaderboard with new score
-   */
-  async updatePlayerScore(entry: LeaderboardEntry): Promise<void> {
-    const key = this.getLeaderboardKey(entry.difficulty);
-
-    // Use timestamp as tiebreaker (earlier submission wins)
-    const score = entry.finalScore + entry.timestamp.getTime() / 1e15;
-    const member = JSON.stringify({
-      username: entry.username,
-      timeElapsed: entry.timeElapsed,
-      hintsUsed: entry.hintsUsed,
-      finalScore: entry.finalScore,
-      timestamp: entry.timestamp.toISOString(),
-    });
-
-    await this.redis.zadd(key, score, member);
-  }
-
-  /**
-   * Get leaderboard for difficulty
+   * Get leaderboard for specific difficulty
+   * Uses Redis sorted sets for efficient ranking
    */
   async getLeaderboard(
     difficulty: DifficultyLevel,
     limit: number = 50
   ): Promise<LeaderboardEntry[]> {
-    const key = this.getLeaderboardKey(difficulty);
-    const results = await this.redis.zrevrange(key, 0, limit - 1);
+    const key = RedisManager.KEYS.LEADERBOARD + difficulty;
 
-    const entries: LeaderboardEntry[] = [];
+    // Get top scores in descending order (highest scores first)
+    const results = await redis.zRange(key, 0, limit - 1, { by: 'rank', rev: true });
+
+    const leaderboard: LeaderboardEntry[] = [];
 
     for (let i = 0; i < results.length; i++) {
-      try {
-        const data = JSON.parse(results[i]);
-        entries.push({
+      const entryData = await redis.hGetAll(`${key}:entry:${results[i].member}`);
+
+      if (entryData.username) {
+        leaderboard.push({
           rank: i + 1,
-          username: data.username,
+          username: entryData.username,
           difficulty,
-          timeElapsed: data.timeElapsed,
-          hintsUsed: data.hintsUsed,
-          finalScore: data.finalScore,
-          timestamp: new Date(data.timestamp),
+          timeElapsed: parseInt(entryData.timeElapsed || '0'),
+          hintsUsed: parseInt(entryData.hintsUsed || '0'),
+          finalScore: results[i].score,
+          timestamp: new Date(entryData.timestamp || Date.now()),
+          userId: results[i].member,
         });
-      } catch (error) {
-        console.error('Error parsing leaderboard entry:', error);
       }
     }
 
-    return entries;
+    return leaderboard;
   }
 
   /**
-   * Get player's rank on leaderboard
+   * Update player score in leaderboard
+   * Uses Redis transactions for atomic operations
    */
-  async getPlayerRank(username: string, difficulty: DifficultyLevel): Promise<number | null> {
-    const key = this.getLeaderboardKey(difficulty);
-    const results = await this.redis.zrevrange(key, 0, -1);
+  async updatePlayerScore(entry: Omit<LeaderboardEntry, 'rank'>): Promise<number> {
+    const leaderboardKey = RedisManager.KEYS.LEADERBOARD + entry.difficulty;
+    const entryKey = `${leaderboardKey}:entry:${entry.userId}`;
 
-    for (let i = 0; i < results.length; i++) {
-      try {
-        const data = JSON.parse(results[i]);
-        if (data.username === username) {
-          return i + 1;
-        }
-      } catch (error) {
-        console.error('Error parsing leaderboard entry:', error);
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Get total players count for difficulty
-   */
-  async getTotalPlayers(difficulty: DifficultyLevel): Promise<number> {
-    const key = this.getLeaderboardKey(difficulty);
-    return await this.redis.zcard(key);
-  }
-
-  /**
-   * Store daily puzzle set
-   */
-  async storeDailyPuzzles(date: string, puzzleSet: DailyPuzzleSet): Promise<void> {
-    const key = this.getDailyPuzzleKey(date);
-    const value = JSON.stringify(puzzleSet);
-
-    // Store with 7 day expiration
-    await this.redis.set(key, value, { ex: 7 * 24 * 60 * 60 });
-  }
-
-  /**
-   * Get daily puzzle set
-   */
-  async getDailyPuzzles(date: string): Promise<DailyPuzzleSet | null> {
-    const key = this.getDailyPuzzleKey(date);
-    const value = await this.redis.get(key);
-
-    if (!value) return null;
+    // Use Redis transaction for atomic update
+    const txn = await redis.watch(leaderboardKey);
 
     try {
-      const puzzleSet = JSON.parse(value) as DailyPuzzleSet;
-      // Convert date back to Date object
-      puzzleSet.date = new Date(puzzleSet.date);
-      return puzzleSet;
+      await txn.multi();
+
+      // Add/update score in sorted set
+      await txn.zAdd(leaderboardKey, { member: entry.userId, score: entry.finalScore });
+
+      // Store detailed entry information in hash
+      await txn.hSet(entryKey, {
+        username: entry.username,
+        difficulty: entry.difficulty,
+        timeElapsed: entry.timeElapsed.toString(),
+        hintsUsed: entry.hintsUsed.toString(),
+        finalScore: entry.finalScore.toString(),
+        timestamp: entry.timestamp.toISOString(),
+        userId: entry.userId,
+      });
+
+      // Set expiration for entry details (30 days)
+      await txn.expire(entryKey, 2592000);
+
+      // Trim leaderboard to max size
+      await txn.zRemRangeByRank(leaderboardKey, 0, -(RedisManager.LEADERBOARD_MAX_SIZE + 1));
+
+      await txn.exec();
+
+      // Get player's rank
+      const rank = await redis.zRank(leaderboardKey, entry.userId);
+      return rank !== undefined ? rank + 1 : -1;
     } catch (error) {
-      console.error('Error parsing daily puzzle data:', error);
-      return null;
+      await txn.discard();
+      throw error;
     }
   }
 
   /**
-   * Track hint usage for a puzzle
+   * Get user's current rank in leaderboard
    */
-  async trackHintUsage(puzzleId: string, userId: string, quadrant: number): Promise<void> {
-    const key = this.getHintUsageKey(puzzleId, userId);
-    const field = `quadrant_${quadrant}`;
-    const timestamp = new Date().toISOString();
+  async getUserRank(userId: string, difficulty: DifficultyLevel): Promise<number | null> {
+    const key = RedisManager.KEYS.LEADERBOARD + difficulty;
+    const rank = await redis.zRank(key, userId);
 
-    await this.redis.hset(key, field, timestamp);
-
-    // Set expiration for 24 hours
-    await this.redis.expire(key, 24 * 60 * 60);
+    return rank !== undefined ? rank + 1 : null;
   }
 
   /**
-   * Get hint usage for a puzzle
+   * Track user progress and statistics
    */
-  async getHintUsage(puzzleId: string, userId: string): Promise<number[]> {
-    const key = this.getHintUsageKey(puzzleId, userId);
-    const hints = await this.redis.hgetall(key);
-
-    const usedQuadrants: number[] = [];
-    for (const field in hints) {
-      if (field.startsWith('quadrant_')) {
-        const quadrant = parseInt(field.split('_')[1], 10);
-        if (!isNaN(quadrant)) {
-          usedQuadrants.push(quadrant);
-        }
-      }
-    }
-
-    return usedQuadrants.sort();
-  }
-
-  /**
-   * Store user's daily progress
-   */
-  async storeUserProgress(
+  async updateUserProgress(
     userId: string,
-    date: string,
-    progress: UserDailyProgress
+    gameResult: {
+      difficulty: DifficultyLevel;
+      score: number;
+      timeElapsed: number;
+      hintsUsed: number;
+      isCorrect: boolean;
+    }
   ): Promise<void> {
-    const key = this.getUserProgressKey(userId, date);
-    const value = JSON.stringify(progress);
+    const key = RedisManager.KEYS.USER_PROGRESS + userId;
 
-    // Store with 30 day expiration
-    await this.redis.set(key, value, { ex: 30 * 24 * 60 * 60 });
-  }
-
-  /**
-   * Get user's daily progress
-   */
-  async getUserProgress(userId: string, date: string): Promise<UserDailyProgress | null> {
-    const key = this.getUserProgressKey(userId, date);
-    const value = await this.redis.get(key);
-
-    if (!value) return null;
-
-    try {
-      const progress = JSON.parse(value) as UserDailyProgress;
-      // Convert date back to Date object
-      progress.date = new Date(progress.date);
-      return progress;
-    } catch (error) {
-      console.error('Error parsing user progress data:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Store puzzle hash for uniqueness checking
-   */
-  async storePuzzleHash(hash: string, puzzleId: string): Promise<void> {
-    const key = this.getPuzzleHashKey();
-    await this.redis.hset(key, hash, puzzleId);
-  }
-
-  /**
-   * Check if puzzle hash exists
-   */
-  async puzzleHashExists(hash: string): Promise<boolean> {
-    const key = this.getPuzzleHashKey();
-    const result = await this.redis.hget(key, hash);
-    return result !== null;
-  }
-
-  /**
-   * Get all puzzle hashes
-   */
-  async getAllPuzzleHashes(): Promise<string[]> {
-    const key = this.getPuzzleHashKey();
-    const hashes = await this.redis.hgetall(key);
-    return Object.keys(hashes);
-  }
-
-  /**
-   * Clean up expired data
-   */
-  async cleanup(): Promise<void> {
-    // Redis handles expiration automatically, but we can implement
-    // additional cleanup logic here if needed
-
-    // For example, clean up very old leaderboard entries
-    const difficulties: DifficultyLevel[] = ['easy', 'medium', 'hard'];
-
-    for (const difficulty of difficulties) {
-      const key = this.getLeaderboardKey(difficulty);
-      const count = await this.redis.zcard(key);
-
-      // Keep only top 1000 entries per difficulty
-      if (count > 1000) {
-        // Remove entries beyond rank 1000
-        await this.redis.zrevrange(key, 1000, -1);
-      }
-    }
-  }
-
-  /**
-   * Get Redis statistics
-   */
-  async getStats(): Promise<{
-    totalPuzzles: number;
-    totalSessions: number;
-    leaderboardSizes: Record<DifficultyLevel, number>;
-    puzzleHashes: number;
-  }> {
-    const leaderboardSizes: Record<DifficultyLevel, number> = {
-      easy: await this.redis.zcard(this.getLeaderboardKey('easy')),
-      medium: await this.redis.zcard(this.getLeaderboardKey('medium')),
-      hard: await this.redis.zcard(this.getLeaderboardKey('hard')),
+    // Get current progress or initialize
+    const currentData = await redis.hGetAll(key);
+    const progress: UserProgress = {
+      userId,
+      totalGamesPlayed: parseInt(currentData.totalGamesPlayed || '0'),
+      totalScore: parseInt(currentData.totalScore || '0'),
+      bestScores: {
+        easy: parseInt(currentData.bestScoreEasy || '0'),
+        medium: parseInt(currentData.bestScoreMedium || '0'),
+        hard: parseInt(currentData.bestScoreHard || '0'),
+      },
+      averageTime: {
+        easy: parseFloat(currentData.avgTimeEasy || '0'),
+        medium: parseFloat(currentData.avgTimeMedium || '0'),
+        hard: parseFloat(currentData.avgTimeHard || '0'),
+      },
+      hintsUsageStats: {
+        totalHintsUsed: parseInt(currentData.totalHintsUsed || '0'),
+        averageHintsPerGame: parseFloat(currentData.avgHintsPerGame || '0'),
+      },
+      lastPlayedDate: new Date(),
     };
 
-    const puzzleHashesKey = this.getPuzzleHashKey();
-    const puzzleHashesData = await this.redis.hgetall(puzzleHashesKey);
-    const puzzleHashes = Object.keys(puzzleHashesData).length;
+    // Update statistics
+    progress.totalGamesPlayed += 1;
+    if (gameResult.isCorrect) {
+      progress.totalScore += gameResult.score;
+    }
+
+    // Update best scores
+    if (gameResult.score > progress.bestScores[gameResult.difficulty]) {
+      progress.bestScores[gameResult.difficulty] = gameResult.score;
+    }
+
+    // Update average times (simple moving average)
+    const currentAvg = progress.averageTime[gameResult.difficulty];
+    const gamesForDifficulty =
+      parseInt(currentData[`gamesPlayed${gameResult.difficulty}`] || '0') + 1;
+    progress.averageTime[gameResult.difficulty] =
+      (currentAvg * (gamesForDifficulty - 1) + gameResult.timeElapsed) / gamesForDifficulty;
+
+    // Update hints statistics
+    progress.hintsUsageStats.totalHintsUsed += gameResult.hintsUsed;
+    progress.hintsUsageStats.averageHintsPerGame =
+      progress.hintsUsageStats.totalHintsUsed / progress.totalGamesPlayed;
+
+    // Store updated progress
+    await redis.hSet(key, {
+      totalGamesPlayed: progress.totalGamesPlayed.toString(),
+      totalScore: progress.totalScore.toString(),
+      bestScoreEasy: progress.bestScores.easy.toString(),
+      bestScoreMedium: progress.bestScores.medium.toString(),
+      bestScoreHard: progress.bestScores.hard.toString(),
+      avgTimeEasy: progress.averageTime.easy.toString(),
+      avgTimeMedium: progress.averageTime.medium.toString(),
+      avgTimeHard: progress.averageTime.hard.toString(),
+      totalHintsUsed: progress.hintsUsageStats.totalHintsUsed.toString(),
+      avgHintsPerGame: progress.hintsUsageStats.averageHintsPerGame.toString(),
+      lastPlayedDate: progress.lastPlayedDate.toISOString(),
+      [`gamesPlayed${gameResult.difficulty}`]: gamesForDifficulty.toString(),
+    });
+
+    // Set expiration (90 days)
+    await redis.expire(key, 7776000);
+  }
+
+  /**
+   * Get user progress statistics
+   */
+  async getUserProgress(userId: string): Promise<UserProgress | null> {
+    const key = RedisManager.KEYS.USER_PROGRESS + userId;
+    const data = await redis.hGetAll(key);
+
+    if (!data.totalGamesPlayed) {
+      return null;
+    }
 
     return {
-      totalPuzzles: 0, // Would need to scan keys to get accurate count
-      totalSessions: 0, // Would need to scan keys to get accurate count
-      leaderboardSizes,
-      puzzleHashes,
+      userId,
+      totalGamesPlayed: parseInt(data.totalGamesPlayed),
+      totalScore: parseInt(data.totalScore),
+      bestScores: {
+        easy: parseInt(data.bestScoreEasy || '0'),
+        medium: parseInt(data.bestScoreMedium || '0'),
+        hard: parseInt(data.bestScoreHard || '0'),
+      },
+      averageTime: {
+        easy: parseFloat(data.avgTimeEasy || '0'),
+        medium: parseFloat(data.avgTimeMedium || '0'),
+        hard: parseFloat(data.avgTimeHard || '0'),
+      },
+      hintsUsageStats: {
+        totalHintsUsed: parseInt(data.totalHintsUsed || '0'),
+        averageHintsPerGame: parseFloat(data.avgHintsPerGame || '0'),
+      },
+      lastPlayedDate: new Date(data.lastPlayedDate || Date.now()),
     };
   }
 
   /**
-   * Delete session
+   * Create and manage game sessions
    */
-  async deleteSession(sessionId: string): Promise<void> {
-    const key = this.getSessionKey(sessionId);
-    await this.redis.del(key);
+  async createGameSession(
+    sessionId: string,
+    puzzleId: string,
+    userId: string,
+    difficulty: DifficultyLevel
+  ): Promise<void> {
+    const key = RedisManager.KEYS.GAME_SESSION + sessionId;
+
+    const session: GameSession = {
+      sessionId,
+      puzzleId,
+      userId,
+      startTime: new Date(),
+      difficulty,
+      hintsUsed: [],
+      isActive: true,
+      lastActivity: new Date(),
+    };
+
+    await redis.setEx(key, RedisManager.SESSION_EXPIRY, JSON.stringify(session));
   }
 
   /**
-   * Check if key exists
+   * Get game session
    */
-  async exists(key: string): Promise<boolean> {
-    const result = await this.redis.exists(key);
-    return result > 0;
+  async getGameSession(sessionId: string): Promise<GameSession | null> {
+    const key = RedisManager.KEYS.GAME_SESSION + sessionId;
+    const data = await redis.get(key);
+
+    return data ? JSON.parse(data) : null;
+  }
+
+  /**
+   * Update game session with hint usage
+   */
+  async updateGameSession(sessionId: string, hintsUsed: number[]): Promise<void> {
+    const session = await this.getGameSession(sessionId);
+    if (!session) return;
+
+    session.hintsUsed = hintsUsed;
+    session.lastActivity = new Date();
+
+    const key = RedisManager.KEYS.GAME_SESSION + sessionId;
+    await redis.setEx(key, RedisManager.SESSION_EXPIRY, JSON.stringify(session));
+  }
+
+  /**
+   * End game session
+   */
+  async endGameSession(sessionId: string): Promise<void> {
+    const session = await this.getGameSession(sessionId);
+    if (!session) return;
+
+    session.isActive = false;
+    session.lastActivity = new Date();
+
+    const key = RedisManager.KEYS.GAME_SESSION + sessionId;
+    await redis.setEx(key, 3600, JSON.stringify(session)); // Keep for 1 hour after completion
+  }
+
+  /**
+   * Track hint usage patterns
+   */
+  async trackHintUsage(puzzleId: string, userId: string, quadrant: number): Promise<void> {
+    const key = RedisManager.KEYS.HINT_USAGE + puzzleId;
+
+    // Increment hint usage counter for this quadrant
+    await redis.hIncrBy(key, `quadrant_${quadrant}`, 1);
+    await redis.hIncrBy(key, 'total_hints', 1);
+
+    // Set expiration (7 days)
+    await redis.expire(key, 604800);
+
+    // Track user-specific hint usage
+    const userKey = `${key}:user:${userId}`;
+    await redis.hIncrBy(userKey, `quadrant_${quadrant}`, 1);
+    await redis.expire(userKey, 604800);
+  }
+
+  /**
+   * Get hint usage statistics for a puzzle
+   */
+  async getHintUsageStats(puzzleId: string): Promise<Record<string, number>> {
+    const key = RedisManager.KEYS.HINT_USAGE + puzzleId;
+    const stats = await redis.hGetAll(key);
+
+    const result: Record<string, number> = {};
+    Object.entries(stats).forEach(([field, value]) => {
+      result[field] = parseInt(value);
+    });
+
+    return result;
+  }
+
+  /**
+   * Update puzzle metadata and statistics
+   */
+  private async updatePuzzleMetadata(puzzleId: string, difficulty: DifficultyLevel): Promise<void> {
+    const key = RedisManager.KEYS.PUZZLE_METADATA + puzzleId;
+
+    await redis.hSet(key, {
+      puzzleId,
+      difficulty,
+      createdAt: new Date().toISOString(),
+      totalAttempts: '0',
+      successfulAttempts: '0',
+      averageTime: '0',
+      averageHints: '0',
+    });
+
+    // Set expiration (30 days)
+    await redis.expire(key, 2592000);
+  }
+
+  /**
+   * Update puzzle attempt statistics
+   */
+  async updatePuzzleStats(
+    puzzleId: string,
+    isSuccess: boolean,
+    timeElapsed: number,
+    hintsUsed: number
+  ): Promise<void> {
+    const key = RedisManager.KEYS.PUZZLE_METADATA + puzzleId;
+
+    // Use transaction for atomic updates
+    const txn = await redis.watch(key);
+
+    try {
+      const currentData = await redis.hGetAll(key);
+      const totalAttempts = parseInt(currentData.totalAttempts || '0') + 1;
+      const successfulAttempts =
+        parseInt(currentData.successfulAttempts || '0') + (isSuccess ? 1 : 0);
+      const currentAvgTime = parseFloat(currentData.averageTime || '0');
+      const currentAvgHints = parseFloat(currentData.averageHints || '0');
+
+      // Calculate new averages
+      const newAvgTime = (currentAvgTime * (totalAttempts - 1) + timeElapsed) / totalAttempts;
+      const newAvgHints = (currentAvgHints * (totalAttempts - 1) + hintsUsed) / totalAttempts;
+
+      await txn.multi();
+      await txn.hSet(key, {
+        totalAttempts: totalAttempts.toString(),
+        successfulAttempts: successfulAttempts.toString(),
+        averageTime: newAvgTime.toString(),
+        averageHints: newAvgHints.toString(),
+      });
+      await txn.exec();
+    } catch (error) {
+      await txn.discard();
+      throw error;
+    }
+  }
+
+  /**
+   * Get global game statistics
+   */
+  async getGlobalStats(): Promise<Record<string, any>> {
+    const key = RedisManager.KEYS.GLOBAL_STATS;
+    const stats = await redis.hGetAll(key);
+
+    return {
+      totalGamesPlayed: parseInt(stats.totalGamesPlayed || '0'),
+      totalPlayers: parseInt(stats.totalPlayers || '0'),
+      averageScore: parseFloat(stats.averageScore || '0'),
+      mostPopularDifficulty: stats.mostPopularDifficulty || 'medium',
+      totalHintsUsed: parseInt(stats.totalHintsUsed || '0'),
+    };
+  }
+
+  /**
+   * Update global statistics
+   */
+  async updateGlobalStats(gameResult: {
+    difficulty: DifficultyLevel;
+    score: number;
+    hintsUsed: number;
+    isNewPlayer: boolean;
+  }): Promise<void> {
+    const key = RedisManager.KEYS.GLOBAL_STATS;
+
+    // Use transaction for atomic updates
+    const txn = await redis.watch(key);
+
+    try {
+      await txn.multi();
+      await txn.hIncrBy(key, 'totalGamesPlayed', 1);
+      await txn.hIncrBy(key, 'totalHintsUsed', gameResult.hintsUsed);
+      await txn.hIncrBy(key, `difficulty_${gameResult.difficulty}`, 1);
+
+      if (gameResult.isNewPlayer) {
+        await txn.hIncrBy(key, 'totalPlayers', 1);
+      }
+
+      await txn.exec();
+    } catch (error) {
+      await txn.discard();
+      throw error;
+    }
+  }
+
+  /**
+   * Clean up expired sessions and old data
+   */
+  async cleanupExpiredData(): Promise<void> {
+    // This would typically be called by a scheduled job
+    // For now, we rely on Redis TTL for automatic cleanup
+    console.log('Cleanup completed - relying on Redis TTL for automatic expiration');
   }
 }
+
+// Export singleton instance
+export const redisManager = new RedisManager();

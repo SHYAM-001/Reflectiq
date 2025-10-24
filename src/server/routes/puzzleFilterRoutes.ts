@@ -32,5 +32,163 @@ router.get('/filter', async (req: Request, res: Response) => {
       dateFrom: req.query.dateFrom ? new Date(req.query.dateFrom as string) : undefined,
       dateTo: req.query.dateTo ? new Date(req.query.dateTo as string) : undefined,
       isActive: req.query.isActive ? req.query.isActive === 'true' : undefined,
-      minParticipants: req.query.minParticipants ? parseInt(req.query.minParticipants as string) : undefined,
-    };\n\n    const result = await puzzleFilterService.getFilteredPuzzles(query);\n    res.json(result);\n  } catch (error) {\n    console.error('Error in /api/puzzles/filter:', error);\n    res.status(500).json({ error: 'Failed to filter puzzles' });\n  }\n});\n\n/**\n * GET /api/puzzles/search\n * Search puzzles by text content\n */\nrouter.get('/search', async (req: Request, res: Response) => {\n  try {\n    const searchTerm = req.query.q as string;\n    if (!searchTerm || searchTerm.trim().length < 2) {\n      return res.status(400).json({ error: 'Search term must be at least 2 characters' });\n    }\n\n    const query: FilterQuery = {\n      difficulty: req.query.difficulty as DifficultyLevel | undefined,\n      sortBy: (req.query.sortBy as 'date' | 'difficulty' | 'participants') || 'date',\n      sortOrder: (req.query.sortOrder as 'asc' | 'desc') || 'desc',\n      page: parseInt(req.query.page as string) || 1,\n      limit: Math.min(parseInt(req.query.limit as string) || 20, 100),\n      dateFrom: req.query.dateFrom ? new Date(req.query.dateFrom as string) : undefined,\n      dateTo: req.query.dateTo ? new Date(req.query.dateTo as string) : undefined,\n      isActive: req.query.isActive ? req.query.isActive === 'true' : undefined,\n    };\n\n    const result = await puzzleFilterService.searchPuzzles(searchTerm.trim(), query);\n    res.json(result);\n  } catch (error) {\n    console.error('Error in /api/puzzles/search:', error);\n    res.status(500).json({ error: 'Failed to search puzzles' });\n  }\n});\n\n/**\n * GET /api/puzzles/difficulty/:difficulty\n * Get puzzles by difficulty level\n */\nrouter.get('/difficulty/:difficulty', async (req: Request, res: Response) => {\n  try {\n    const difficulty = req.params.difficulty as DifficultyLevel;\n    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);\n\n    if (!['easy', 'medium', 'hard'].includes(difficulty)) {\n      return res.status(400).json({ error: 'Invalid difficulty level' });\n    }\n\n    const puzzles = await puzzleFilterService.getPuzzlesByDifficulty(difficulty, limit);\n    res.json(puzzles);\n  } catch (error) {\n    console.error('Error in /api/puzzles/difficulty:', error);\n    res.status(500).json({ error: 'Failed to get puzzles by difficulty' });\n  }\n});\n\n/**\n * GET /api/puzzles/recent\n * Get recent puzzles\n */\nrouter.get('/recent', async (req: Request, res: Response) => {\n  try {\n    const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);\n    const puzzles = await puzzleFilterService.getRecentPuzzles(limit);\n    res.json(puzzles);\n  } catch (error) {\n    console.error('Error in /api/puzzles/recent:', error);\n    res.status(500).json({ error: 'Failed to get recent puzzles' });\n  }\n});\n\n/**\n * GET /api/puzzles/popular\n * Get popular puzzles (by participant count)\n */\nrouter.get('/popular', async (req: Request, res: Response) => {\n  try {\n    const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);\n    const puzzles = await puzzleFilterService.getPopularPuzzles(limit);\n    res.json(puzzles);\n  } catch (error) {\n    console.error('Error in /api/puzzles/popular:', error);\n    res.status(500).json({ error: 'Failed to get popular puzzles' });\n  }\n});\n\n/**\n * GET /api/puzzles/stats\n * Get puzzle statistics\n */\nrouter.get('/stats', async (req: Request, res: Response) => {\n  try {\n    const stats = await puzzleFilterService.getPuzzleStats();\n    res.json(stats);\n  } catch (error) {\n    console.error('Error in /api/puzzles/stats:', error);\n    res.status(500).json({ error: 'Failed to get puzzle statistics' });\n  }\n});\n\n/**\n * GET /api/puzzles/:id\n * Get puzzle by ID\n */\nrouter.get('/:id', async (req: Request, res: Response) => {\n  try {\n    const puzzleId = req.params.id;\n    const puzzle = await puzzleFilterService.getPuzzleById(puzzleId);\n    \n    if (!puzzle) {\n      return res.status(404).json({ error: 'Puzzle not found' });\n    }\n\n    res.json(puzzle);\n  } catch (error) {\n    console.error('Error in /api/puzzles/:id:', error);\n    res.status(500).json({ error: 'Failed to get puzzle' });\n  }\n});\n\n/**\n * PATCH /api/puzzles/:id/metadata\n * Update puzzle metadata\n */\nrouter.patch('/:id/metadata', async (req: Request, res: Response) => {\n  try {\n    const puzzleId = req.params.id;\n    const updates = req.body;\n\n    // Validate update fields\n    const allowedFields = ['participantCount', 'averageScore', 'isActive'];\n    const validUpdates: any = {};\n\n    for (const field of allowedFields) {\n      if (updates[field] !== undefined) {\n        validUpdates[field] = updates[field];\n      }\n    }\n\n    if (Object.keys(validUpdates).length === 0) {\n      return res.status(400).json({ error: 'No valid update fields provided' });\n    }\n\n    await puzzleFilterService.updatePuzzleMetadata(puzzleId, validUpdates);\n    res.json({ success: true });\n  } catch (error) {\n    console.error('Error in /api/puzzles/:id/metadata:', error);\n    res.status(500).json({ error: 'Failed to update puzzle metadata' });\n  }\n});\n\nexport { router as puzzleFilterRoutes };"
+      minParticipants: req.query.minParticipants
+        ? parseInt(req.query.minParticipants as string)
+        : undefined,
+    };
+
+    const result = await puzzleFilterService.getFilteredPuzzles(query);
+    res.json(result);
+  } catch (error) {
+    console.error('Error in /api/puzzles/filter:', error);
+    res.status(500).json({ error: 'Failed to filter puzzles' });
+  }
+});
+
+/**
+ * GET /api/puzzles/search
+ * Search puzzles by text content
+ */
+router.get('/search', async (req: Request, res: Response) => {
+  try {
+    const searchTerm = req.query.q as string;
+    if (!searchTerm || searchTerm.trim().length < 2) {
+      return res.status(400).json({ error: 'Search term must be at least 2 characters' });
+    }
+
+    const query: FilterQuery = {
+      difficulty: req.query.difficulty as DifficultyLevel | undefined,
+      sortBy: (req.query.sortBy as 'date' | 'difficulty' | 'participants') || 'date',
+      sortOrder: (req.query.sortOrder as 'asc' | 'desc') || 'desc',
+      page: parseInt(req.query.page as string) || 1,
+      limit: Math.min(parseInt(req.query.limit as string) || 20, 100),
+      dateFrom: req.query.dateFrom ? new Date(req.query.dateFrom as string) : undefined,
+      dateTo: req.query.dateTo ? new Date(req.query.dateTo as string) : undefined,
+      isActive: req.query.isActive ? req.query.isActive === 'true' : undefined,
+    };
+
+    const result = await puzzleFilterService.searchPuzzles(searchTerm.trim(), query);
+    res.json(result);
+  } catch (error) {
+    console.error('Error in /api/puzzles/search:', error);
+    res.status(500).json({ error: 'Failed to search puzzles' });
+  }
+});
+
+/**
+ * GET /api/puzzles/difficulty/:difficulty
+ * Get puzzles by difficulty level
+ */
+router.get('/difficulty/:difficulty', async (req: Request, res: Response) => {
+  try {
+    const difficulty = req.params.difficulty as DifficultyLevel;
+    const limit = Math.min(parseInt(req.query.limit as string) || 20, 100);
+
+    if (!['easy', 'medium', 'hard'].includes(difficulty)) {
+      return res.status(400).json({ error: 'Invalid difficulty level' });
+    }
+
+    const puzzles = await puzzleFilterService.getPuzzlesByDifficulty(difficulty, limit);
+    res.json(puzzles);
+  } catch (error) {
+    console.error('Error in /api/puzzles/difficulty:', error);
+    res.status(500).json({ error: 'Failed to get puzzles by difficulty' });
+  }
+});
+
+/**
+ * GET /api/puzzles/recent
+ * Get recent puzzles
+ */
+router.get('/recent', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+    const puzzles = await puzzleFilterService.getRecentPuzzles(limit);
+    res.json(puzzles);
+  } catch (error) {
+    console.error('Error in /api/puzzles/recent:', error);
+    res.status(500).json({ error: 'Failed to get recent puzzles' });
+  }
+});
+
+/**
+ * GET /api/puzzles/popular
+ * Get popular puzzles (by participant count)
+ */
+router.get('/popular', async (req: Request, res: Response) => {
+  try {
+    const limit = Math.min(parseInt(req.query.limit as string) || 10, 50);
+    const puzzles = await puzzleFilterService.getPopularPuzzles(limit);
+    res.json(puzzles);
+  } catch (error) {
+    console.error('Error in /api/puzzles/popular:', error);
+    res.status(500).json({ error: 'Failed to get popular puzzles' });
+  }
+});
+
+/**
+ * GET /api/puzzles/stats
+ * Get puzzle statistics
+ */
+router.get('/stats', async (req: Request, res: Response) => {
+  try {
+    const stats = await puzzleFilterService.getPuzzleStats();
+    res.json(stats);
+  } catch (error) {
+    console.error('Error in /api/puzzles/stats:', error);
+    res.status(500).json({ error: 'Failed to get puzzle statistics' });
+  }
+});
+
+/**
+ * GET /api/puzzles/:id
+ * Get puzzle by ID
+ */
+router.get('/:id', async (req: Request, res: Response) => {
+  try {
+    const puzzleId = req.params.id;
+    const puzzle = await puzzleFilterService.getPuzzleById(puzzleId);
+
+    if (!puzzle) {
+      return res.status(404).json({ error: 'Puzzle not found' });
+    }
+
+    res.json(puzzle);
+  } catch (error) {
+    console.error('Error in /api/puzzles/:id:', error);
+    res.status(500).json({ error: 'Failed to get puzzle' });
+  }
+});
+
+/**
+ * PATCH /api/puzzles/:id/metadata
+ * Update puzzle metadata
+ */
+router.patch('/:id/metadata', async (req: Request, res: Response) => {
+  try {
+    const puzzleId = req.params.id;
+    const updates = req.body;
+
+    // Validate update fields
+    const allowedFields = ['participantCount', 'averageScore', 'isActive'];
+    const validUpdates: any = {};
+
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        validUpdates[field] = updates[field];
+      }
+    }
+
+    if (Object.keys(validUpdates).length === 0) {
+      return res.status(400).json({ error: 'No valid update fields provided' });
+    }
+
+    await puzzleFilterService.updatePuzzleMetadata(puzzleId, validUpdates);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error in /api/puzzles/:id/metadata:', error);
+    res.status(500).json({ error: 'Failed to update puzzle metadata' });
+  }
+});
+
+export { router as puzzleFilterRoutes };

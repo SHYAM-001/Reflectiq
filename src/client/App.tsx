@@ -1,61 +1,37 @@
-import { navigateTo } from '@devvit/web/client';
-import { useCounter } from './hooks/useCounter';
+import { useEffect, useState } from 'react';
+import { LogicReflectionsGame } from './components/LogicReflectionsGame.js';
+import './components/LogicReflectionsGame.css';
 
 export const App = () => {
-  const { count, username, loading, increment, decrement } = useCounter();
-  return (
-    <div className="flex relative flex-col justify-center items-center min-h-screen gap-4">
-      <img className="object-contain w-1/2 max-w-[250px] mx-auto" src="/snoo.png" alt="Snoo" />
-      <div className="flex flex-col items-center gap-2">
-        <h1 className="text-2xl font-bold text-center text-gray-900 ">
-          {username ? `Hey ${username} 👋` : ''}
-        </h1>
-        <p className="text-base text-center text-gray-600 ">
-          Edit <span className="bg-[#e5ebee]  px-1 py-0.5 rounded">src/client/App.tsx</span> to get
-          started.
-        </p>
+  const [username, setUsername] = useState<string>('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Initialize the app and get user info
+    const initializeApp = async () => {
+      try {
+        const response = await fetch('/api/init');
+        if (response.ok) {
+          const data = await response.json();
+          setUsername(data.username || '');
+        }
+      } catch (error) {
+        console.error('Failed to initialize app:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void initializeApp();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-500 to-purple-600">
+        <div className="text-white text-xl">Loading Logic Reflections...</div>
       </div>
-      <div className="flex items-center justify-center mt-5">
-        <button
-          className="flex items-center justify-center bg-[#d93900] text-white w-14 h-14 text-[2.5em] rounded-full cursor-pointer font-mono leading-none transition-colors"
-          onClick={decrement}
-          disabled={loading}
-        >
-          -
-        </button>
-        <span className="text-[1.8em] font-medium mx-5 min-w-[50px] text-center leading-none text-gray-900">
-          {loading ? '...' : count}
-        </span>
-        <button
-          className="flex items-center justify-center bg-[#d93900] text-white w-14 h-14 text-[2.5em] rounded-full cursor-pointer font-mono leading-none transition-colors"
-          onClick={increment}
-          disabled={loading}
-        >
-          +
-        </button>
-      </div>
-      <footer className="absolute bottom-4 left-1/2 -translate-x-1/2 flex gap-3 text-[0.8em] text-gray-600">
-        <button
-          className="cursor-pointer"
-          onClick={() => navigateTo('https://developers.reddit.com/docs')}
-        >
-          Docs
-        </button>
-        <span className="text-gray-300">|</span>
-        <button
-          className="cursor-pointer"
-          onClick={() => navigateTo('https://www.reddit.com/r/Devvit')}
-        >
-          r/Devvit
-        </button>
-        <span className="text-gray-300">|</span>
-        <button
-          className="cursor-pointer"
-          onClick={() => navigateTo('https://discord.com/invite/R7yu2wh9Qz')}
-        >
-          Discord
-        </button>
-      </footer>
-    </div>
-  );
+    );
+  }
+
+  return <LogicReflectionsGame username={username} />;
 };

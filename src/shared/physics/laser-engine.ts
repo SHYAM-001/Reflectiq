@@ -1,4 +1,4 @@
-// Laser physics engine for Logic Reflections game
+// Laser beam simulation engine optimized for Devvit Web serverless environment
 
 import type {
   Coordinate,
@@ -7,179 +7,180 @@ import type {
   LaserPath,
   PathSegment,
   MaterialType,
-  DifficultyLevel,
+  PuzzleConfiguration,
 } from '../types/game.js';
-import { DIRECTION_VECTORS, GRID_SIZES, REFLECTION_BEHAVIORS } from '../constants.js';
-import { createCoordinate, isValidCoordinate } from '../utils.js';
+import { DIRECTION_VECTORS, REFLECTION_BEHAVIORS } from '../constants.js';
 
 export class LaserEngine {
-  /**
-   * Simulate laser path through the grid
-   */
-  static simulateLaserPath(
-    grid: GridCell[][],
-    entryPoint: Coordinate,
-    initialDirection: Direction,
-    difficulty: DifficultyLevel
-  ): LaserPath {
-    const segments: PathSegment[] = [];
-    let currentPosition = { ...entryPoint };
-    let currentDirection = initialDirection;
-    let isComplete = false;
-    let exitPoint: Coordinate | null = null;
+  private maxIterations = 1000; // Prevent infinite loops in serverless environment
 
-    // Maximum iterations to prevent infinite loops
-    const maxIterations = GRID_SIZES[difficulty] * GRID_SIZES[difficulty] * 4;
+  /**
+   * Simulate laser path through the puzzle grid
+   * Optimized for Devvit Web's 30-second timeout constraint
+   */
+  simulateLaserPath(puzzle: PuzzleConfiguration): LaserPath {
+    const { grid, laserEntry } = puzzle;
+    const path: LaserPath = {
+      segments: [],
+      exitPoint: null,
+      isComplete: false,
+    };
+
+    let currentPos = { ...laserEntry };
+    let currentDirection = this.getInitialDirection(laserEntry, grid);
     let iterations = 0;
 
-    while (!isComplete && iterations < maxIterations) {
+    while (iterations < this.maxIterations) {
       iterations++;
 
-      // Calculate next position
-      const nextPosition = this.getNextPosition(currentPosition, currentDirection);
+      // Get next position
+      const nextPos = this.getNextPosition(currentPos, currentDirection);
 
       // Check if we've exited the grid
-      if (!isValidCoordinate(nextPosition.row, nextPosition.col, difficulty)) {
-        exitPoint = nextPosition;
-        isComplete = true;
-
-        // Add final segment to exit point
-        segments.push({
-          start: currentPosition,
-          end: exitPoint,
-          direction: currentDirection,
-          material: 'empty',
-        });
+      if (this.isOutOfBounds(nextPos, grid)) {
+        path.exitPoint = this.getExitCoordinate(currentPos, currentDirection, grid);
+        path.isComplete = true;
         break;
       }
 
-      // Get the material at the next position
-      const targetCell = grid[nextPosition.row]?.[nextPosition.col];
-      if (!targetCell) {
-        // Invalid grid position, treat as exit
-        exitPoint = nextPosition;
-        isComplete = true;
-        break;
-      }
-      const material = targetCell.material;
+      // Get the cell we're entering
+      const cell = grid[nextPos.row][nextPos.col];
 
-      // Create segment to the current cell
-      segments.push({
-        start: currentPosition,
-        end: nextPosition,
+      // Create path segment
+      const segment: PathSegment = {
+        start: { ...currentPos },
+        end: { ...nextPos },
         direction: currentDirection,
-        material,
-      });
+        material: cell.material,
+      };
+      path.segments.push(segment);
 
       // Handle material interaction
-      const interaction = this.handleMaterialInteraction(
-        material,
-        currentDirection,
-        nextPosition,
-        difficulty
-      );
+      const interaction = this.handleMaterialInteraction(nextPos, currentDirection, cell.material);
 
       if (interaction.absorbed) {
-        isComplete = true;
+        path.isComplete = true;
         break;
       }
 
-      if (interaction.newDirection) {
-        currentDirection = interaction.newDirection;
-      }
-
-      if (interaction.newPosition) {
-        currentPosition = interaction.newPosition;
-      } else {
-        currentPosition = nextPosition;
-      }
+      // Update position and direction
+      currentPos = nextPos;
+      currentDirection = interaction.newDirection;
     }
 
+    // Handle timeout case (shouldn't happen with proper puzzle generation)
+    if (iterations >= this.maxIterations) {
+      console.warn('Laser simulation exceeded maximum iterations');
+      path.isComplete = true;
+    }
+
+    return path;
+  }
+
+  /**
+   * Get initial laser direction based on entry point
+   */
+  private getInitialDirection(entry: Coordinate, grid: GridCell[][]): Direction {
+    const gridSize = grid.length;
+
+    // Determine direction based on entry position
+    if (entry.row === 0) return 'south';
+    if (entry.row === gridSize - 1) return 'north';
+    if (entry.col === 0) return 'east';
+    if (entry.col === gridSize - 1) return 'west';
+
+    // Default to south if entry is somehow in the middle
+    return 'south';
+  }
+
+  /**
+   * Calculate next position based on current position and direction
+   */
+  private getNextPosition(pos: Coordinate, direction: Direction): Coordinate {
+    const vector = DIRECTION_VECTORS[direction];
     return {
-      segments,
-      exitPoint,
-      isComplete,
+      row: pos.row + vector.row,
+      col: pos.col + vector.col,
+      label: this.coordinateToLabel(pos.row + vector.row, pos.col + vector.col),
     };
   }
 
   /**
-   * Calculate the next position based on current position and direction
+   * Check if position is outside the grid bounds
    */
-  private static getNextPosition(position: Coordinate, direction: Direction): Coordinate {
-    const vector = DIRECTION_VECTORS[direction];
-    return createCoordinate(position.row + vector.row, position.col + vector.col);
+  private isOutOfBounds(pos: Coordinate, grid: GridCell[][]): boolean {
+    return pos.row < 0 || pos.row >= grid.length || pos.col < 0 || pos.col >= grid[0].length;
   }
 
   /**
-   * Handle interaction between laser and material
+   * Get exit coordinate when laser leaves the grid
    */
-  private static handleMaterialInteraction(
-    material: MaterialType,
+  private getExitCoordinate(pos: Coordinate, direction: Direction, grid: GridCell[][]): Coordinate {
+    const vector = DIRECTION_VECTORS[direction];
+    const exitPos = {
+      row: pos.row + vector.row,
+      col: pos.col + vector.col,
+    };
+
+    // Clamp to grid boundaries for exit coordinate
+    const clampedRow = Math.max(0, Math.min(grid.length - 1, exitPos.row));
+    const clampedCol = Math.max(0, Math.min(grid[0].length - 1, exitPos.col));
+
+    return {
+      row: clampedRow,
+      col: clampedCol,
+      label: this.coordinateToLabel(clampedRow, clampedCol),
+    };
+  }
+
+  /**
+   * Handle laser interaction with different materials
+   * Optimized for deterministic behavior in serverless environment
+   */
+  private handleMaterialInteraction(
+    pos: Coordinate,
     direction: Direction,
-    position: Coordinate,
-    difficulty: DifficultyLevel
-  ): MaterialInteractionResult {
+    material: MaterialType
+  ): { newDirection: Direction; absorbed: boolean } {
     const behavior = REFLECTION_BEHAVIORS[material];
 
     switch (behavior.behavior) {
       case 'absorb':
-        return { absorbed: true };
+        return { newDirection: direction, absorbed: true };
 
       case 'reflect':
-        return {
-          absorbed: false,
-          newDirection: this.calculateReflection(direction, material),
-        };
+        return { newDirection: this.calculateReflection(direction, material), absorbed: false };
 
       case 'reverse':
-        return {
-          absorbed: false,
-          newDirection: this.reverseDirection(direction),
-        };
-
-      case 'diffuse':
-        return {
-          absorbed: false,
-          newDirection: this.calculateDiffusion(direction, behavior.diffusionRange || 1),
-          newPosition: this.applyDiffusionOffset(position, difficulty),
-        };
+        return { newDirection: this.reverseDirection(direction), absorbed: false };
 
       case 'split':
-        // For glass, we'll simulate the reflection path (50% behavior)
-        // The pass-through behavior would be handled separately in a full implementation
-        return {
-          absorbed: false,
-          newDirection: this.calculateReflection(direction, material),
-        };
+        // For glass, use deterministic behavior instead of random
+        // In serverless environment, we want predictable results
+        return { newDirection: this.calculateGlassBehavior(direction, pos), absorbed: false };
+
+      case 'diffuse':
+        // Water diffusion - use deterministic offset based on position
+        return { newDirection: this.calculateWaterDiffusion(direction, pos), absorbed: false };
 
       default:
         // Empty cells - laser passes through
-        return { absorbed: false };
+        return { newDirection: direction, absorbed: false };
     }
   }
 
   /**
-   * Calculate reflection direction based on material type
+   * Calculate reflection for mirrors (90-degree reflection)
    */
-  private static calculateReflection(direction: Direction, material: MaterialType): Direction {
-    // Mirror reflects at 90-degree angles
-    if (material === 'mirror') {
-      return this.calculateMirrorReflection(direction);
-    }
+  private calculateReflection(direction: Direction, material: MaterialType): Direction {
+    if (material !== 'mirror') return direction;
 
-    // Glass and other materials use similar reflection logic
-    return this.calculateMirrorReflection(direction);
-  }
-
-  /**
-   * Calculate mirror reflection (90-degree angle reflection)
-   */
-  private static calculateMirrorReflection(direction: Direction): Direction {
+    // Mirror reflection logic - 90-degree turns
     const reflectionMap: Record<Direction, Direction> = {
       north: 'east',
       south: 'west',
-      east: 'north',
-      west: 'south',
+      east: 'south',
+      west: 'north',
       northeast: 'southeast',
       northwest: 'southwest',
       southeast: 'northeast',
@@ -192,7 +193,7 @@ export class LaserEngine {
   /**
    * Reverse direction for metal materials
    */
-  private static reverseDirection(direction: Direction): Direction {
+  private reverseDirection(direction: Direction): Direction {
     const reverseMap: Record<Direction, Direction> = {
       north: 'south',
       south: 'north',
@@ -208,111 +209,144 @@ export class LaserEngine {
   }
 
   /**
-   * Calculate diffusion for water materials
+   * Calculate glass behavior (deterministic split based on position)
    */
-  private static calculateDiffusion(direction: Direction, diffusionRange: number): Direction {
-    // For water, add slight randomness to the reflection
-    const baseReflection = this.calculateMirrorReflection(direction);
+  private calculateGlassBehavior(direction: Direction, pos: Coordinate): Direction {
+    // Use position-based deterministic behavior instead of random
+    const positionHash = (pos.row + pos.col) % 2;
 
-    // Add random variation within diffusion range
+    if (positionHash === 0) {
+      // Pass through
+      return direction;
+    } else {
+      // Reflect
+      return this.calculateReflection(direction, 'mirror');
+    }
+  }
+
+  /**
+   * Calculate water diffusion (deterministic offset based on position)
+   */
+  private calculateWaterDiffusion(direction: Direction, pos: Coordinate): Direction {
+    // Use position-based deterministic offset
+    const positionHash = (pos.row * 3 + pos.col * 7) % 8;
     const directions: Direction[] = [
       'north',
-      'south',
-      'east',
-      'west',
       'northeast',
-      'northwest',
+      'east',
       'southeast',
+      'south',
       'southwest',
+      'west',
+      'northwest',
     ];
-    const baseIndex = directions.indexOf(baseReflection);
 
-    if (baseIndex === -1) return baseReflection;
-
-    // Random offset within diffusion range
-    const offset = Math.floor(Math.random() * (diffusionRange * 2 + 1)) - diffusionRange;
-    const newIndex = (baseIndex + offset + directions.length) % directions.length;
+    // Apply slight directional change based on position
+    const currentIndex = directions.indexOf(direction);
+    const offset = (positionHash % 3) - 1; // -1, 0, or 1
+    const newIndex = (currentIndex + offset + directions.length) % directions.length;
 
     return directions[newIndex];
   }
 
   /**
-   * Apply position offset for water diffusion
+   * Convert row/col to grid label (A1, B2, etc.)
    */
-  private static applyDiffusionOffset(
-    position: Coordinate,
-    difficulty: DifficultyLevel
-  ): Coordinate {
-    // Random offset of one cell for water diffusion
-    const offsetRow = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
-    const offsetCol = Math.floor(Math.random() * 3) - 1; // -1, 0, or 1
-
-    const newRow = Math.max(0, Math.min(GRID_SIZES[difficulty] - 1, position.row + offsetRow));
-    const newCol = Math.max(0, Math.min(GRID_SIZES[difficulty] - 1, position.col + offsetCol));
-
-    return createCoordinate(newRow, newCol);
+  private coordinateToLabel(row: number, col: number): string {
+    const colLetter = String.fromCharCode(65 + col); // A, B, C, etc.
+    const rowNumber = row + 1; // 1-based indexing
+    return `${colLetter}${rowNumber}`;
   }
 
   /**
-   * Get entry direction based on entry point position
+   * Validate if a puzzle has a unique solution
+   * Critical for Devvit Web's deterministic requirements
    */
-  static getEntryDirection(entryPoint: Coordinate, difficulty: DifficultyLevel): Direction {
-    const gridSize = GRID_SIZES[difficulty];
+  validatePuzzleSolution(puzzle: PuzzleConfiguration): boolean {
+    try {
+      const path = this.simulateLaserPath(puzzle);
 
-    // Determine entry direction based on which edge the entry point is on
-    if (entryPoint.row === 0) return 'south'; // Top edge
-    if (entryPoint.row === gridSize - 1) return 'north'; // Bottom edge
-    if (entryPoint.col === 0) return 'east'; // Left edge
-    if (entryPoint.col === gridSize - 1) return 'west'; // Right edge
+      // Check if simulation completed successfully
+      if (!path.isComplete || !path.exitPoint) {
+        return false;
+      }
 
-    // Default to south if entry point is inside grid
-    return 'south';
+      // Verify the exit point matches the expected solution
+      return (
+        path.exitPoint.row === puzzle.correctExit.row &&
+        path.exitPoint.col === puzzle.correctExit.col
+      );
+    } catch (error) {
+      console.error('Error validating puzzle solution:', error);
+      return false;
+    }
   }
 
   /**
-   * Validate if a laser path is solvable (has a valid exit)
+   * Get laser path for a specific quadrant (for hints)
+   * Optimized for Devvit Web's response size limits
    */
-  static isPathSolvable(laserPath: LaserPath): boolean {
-    return laserPath.isComplete && laserPath.exitPoint !== null;
-  }
+  getQuadrantPath(puzzle: PuzzleConfiguration, quadrant: number): PathSegment[] {
+    const fullPath = this.simulateLaserPath(puzzle);
+    const gridSize = puzzle.grid.length;
+    const halfSize = Math.floor(gridSize / 2);
 
-  /**
-   * Get path segments within a specific quadrant
-   */
-  static getQuadrantSegments(
-    laserPath: LaserPath,
-    quadrant: number,
-    difficulty: DifficultyLevel
-  ): PathSegment[] {
-    const gridSize = GRID_SIZES[difficulty];
-    const midRow = Math.floor(gridSize / 2);
-    const midCol = Math.floor(gridSize / 2);
+    // Define quadrant boundaries
+    const quadrantBounds = {
+      0: { minRow: 0, maxRow: halfSize, minCol: 0, maxCol: halfSize }, // Top-left
+      1: { minRow: 0, maxRow: halfSize, minCol: halfSize, maxCol: gridSize }, // Top-right
+      2: { minRow: halfSize, maxRow: gridSize, minCol: 0, maxCol: halfSize }, // Bottom-left
+      3: { minRow: halfSize, maxRow: gridSize, minCol: halfSize, maxCol: gridSize }, // Bottom-right
+    };
 
-    return laserPath.segments.filter((segment) => {
-      const segmentQuadrant = this.getSegmentQuadrant(segment, midRow, midCol);
-      return segmentQuadrant === quadrant;
+    const bounds = quadrantBounds[quadrant as keyof typeof quadrantBounds];
+    if (!bounds) return [];
+
+    // Filter segments that pass through the specified quadrant
+    return fullPath.segments.filter((segment) => {
+      const { start, end } = segment;
+      return (
+        this.isInBounds(start, bounds) ||
+        this.isInBounds(end, bounds) ||
+        this.segmentCrossesBounds(start, end, bounds)
+      );
     });
   }
 
   /**
-   * Determine which quadrant a path segment belongs to
+   * Check if coordinate is within bounds
    */
-  private static getSegmentQuadrant(segment: PathSegment, midRow: number, midCol: number): number {
-    const { start, end } = segment;
-
-    // Use the midpoint of the segment to determine quadrant
-    const midSegmentRow = (start.row + end.row) / 2;
-    const midSegmentCol = (start.col + end.col) / 2;
-
-    if (midSegmentRow < midRow && midSegmentCol < midCol) return 0; // Top-left
-    if (midSegmentRow < midRow && midSegmentCol >= midCol) return 1; // Top-right
-    if (midSegmentRow >= midRow && midSegmentCol < midCol) return 2; // Bottom-left
-    return 3; // Bottom-right
+  private isInBounds(
+    coord: Coordinate,
+    bounds: { minRow: number; maxRow: number; minCol: number; maxCol: number }
+  ): boolean {
+    return (
+      coord.row >= bounds.minRow &&
+      coord.row < bounds.maxRow &&
+      coord.col >= bounds.minCol &&
+      coord.col < bounds.maxCol
+    );
   }
-}
 
-interface MaterialInteractionResult {
-  absorbed: boolean;
-  newDirection?: Direction;
-  newPosition?: Coordinate;
+  /**
+   * Check if segment crosses through bounds
+   */
+  private segmentCrossesBounds(
+    start: Coordinate,
+    end: Coordinate,
+    bounds: { minRow: number; maxRow: number; minCol: number; maxCol: number }
+  ): boolean {
+    // Simple line-rectangle intersection check
+    const minRow = Math.min(start.row, end.row);
+    const maxRow = Math.max(start.row, end.row);
+    const minCol = Math.min(start.col, end.col);
+    const maxCol = Math.max(start.col, end.col);
+
+    return !(
+      maxRow < bounds.minRow ||
+      minRow >= bounds.maxRow ||
+      maxCol < bounds.minCol ||
+      minCol >= bounds.maxCol
+    );
+  }
 }

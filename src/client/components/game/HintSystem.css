@@ -1,15 +1,16 @@
-/* HintSystem component styles */
+/* HintSystem component styles optimized for Devvit Web */
 
 .hint-system {
   background: rgba(255, 255, 255, 0.95);
   border-radius: 12px;
   padding: 1.5rem;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-  max-width: 320px;
-  min-width: 280px;
+  max-width: 350px;
+  width: 100%;
 }
 
-.hint-system-header {
+/* Header */
+.hint-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -18,137 +19,220 @@
   border-bottom: 2px solid #e0e0e0;
 }
 
-.hint-system-header h3 {
+.hint-title {
   margin: 0;
   color: #333;
   font-size: 1.2rem;
   font-weight: 600;
 }
 
-.hint-stats {
+.hint-counter {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
   gap: 0.25rem;
 }
 
-.hints-remaining {
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: #666;
-  background: #f0f0f0;
-  padding: 0.25rem 0.5rem;
-  border-radius: 12px;
+.remaining-hints {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #667eea;
 }
 
-/* Hint buttons grid */
+.hints-label {
+  font-size: 0.8rem;
+  color: #666;
+  font-weight: 500;
+}
+
+/* Description */
+.hint-description {
+  margin: 0 0 1.5rem 0;
+  color: #666;
+  font-size: 0.9rem;
+  line-height: 1.4;
+  text-align: center;
+  font-style: italic;
+}
+
+/* Hint Buttons Grid */
 .hint-buttons-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
   gap: 0.75rem;
   margin-bottom: 1.5rem;
 }
 
 .hint-button {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border: none;
-  border-radius: 8px;
-  padding: 0.75rem;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-  min-height: 80px;
-}
-
-.hint-button:hover:not(:disabled) {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
-}
-
-.hint-button:active:not(:disabled) {
-  transform: translateY(0);
-}
-
-.hint-button--available {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  color: white;
-}
-
-.hint-button--used {
-  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
-  color: white;
-  cursor: default;
-}
-
-.hint-button--disabled {
-  background: linear-gradient(135deg, #6c757d 0%, #adb5bd 100%);
-  color: #ffffff;
-  cursor: not-allowed;
-  opacity: 0.6;
-}
-
-.hint-button--animating {
-  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
-  color: #333;
-  animation: hint-pulse 1s infinite;
-}
-
-@keyframes hint-pulse {
-  0%, 100% {
-    transform: scale(1);
-  }
-  50% {
-    transform: scale(1.05);
-  }
-}
-
-.hint-button-content {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.5rem;
+  padding: 1rem 0.75rem;
+  border: 2px solid #e0e0e0;
+  border-radius: 8px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 0.85rem;
+  font-weight: 500;
+  min-height: 80px;
   position: relative;
 }
 
-.hint-quadrant-icon {
-  font-size: 1.5rem;
-  line-height: 1;
+.hint-button:hover:not(.disabled):not(.used) {
+  border-color: #667eea;
+  background: #f8f9ff;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2);
 }
 
-.hint-quadrant-label {
+.hint-button.used {
+  background: #e8f5e8;
+  border-color: #28a745;
+  color: #155724;
+  cursor: default;
+}
+
+.hint-button.disabled {
+  background: #f8f9fa;
+  border-color: #dee2e6;
+  color: #6c757d;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.hint-button.animating {
+  background: linear-gradient(45deg, #667eea, #764ba2);
+  color: white;
+  border-color: #667eea;
+  animation: hint-pulse 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes hint-pulse {
+  0% { transform: scale(1); }
+  100% { transform: scale(1.05); }
+}
+
+.hint-icon {
+  font-size: 1.5rem;
+  margin-bottom: 0.25rem;
+}
+
+.hint-label {
   font-size: 0.8rem;
-  font-weight: 500;
   text-align: center;
   line-height: 1.2;
 }
 
-.hint-used-indicator {
-  position: absolute;
-  top: -0.25rem;
-  right: -0.25rem;
-  background: #28a745;
-  color: white;
-  border-radius: 50%;
-  width: 20px;
-  height: 20px;
+/* Score Impact Section */
+.score-impact {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1.5rem;
+  border: 1px solid #e0e0e0;
+}
+
+.current-multiplier {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.multiplier-label {
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.multiplier-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #28a745;
+}
+
+.next-hint-impact {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 0.5rem;
+  border-top: 1px solid #e0e0e0;
+}
+
+.impact-label {
+  font-size: 0.85rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.impact-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.impact-value.negative {
+  color: #dc3545;
+}
+
+.new-multiplier {
+  font-size: 0.8rem;
+  color: #666;
+  font-style: italic;
+}
+
+/* Strategy Tips */
+.hint-strategy {
+  background: #e8f4fd;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+  border-left: 4px solid #667eea;
+}
+
+.hint-strategy h4 {
+  margin: 0 0 0.75rem 0;
+  color: #333;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.strategy-list {
+  margin: 0;
+  padding-left: 1.25rem;
+  color: #555;
+}
+
+.strategy-list li {
+  margin-bottom: 0.5rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
+.strategy-list li:last-child {
+  margin-bottom: 0;
+}
+
+/* Animation Status */
+.animation-status {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 0.8rem;
-  font-weight: bold;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  border-radius: 8px;
+  margin-bottom: 1rem;
+  font-weight: 500;
 }
 
-.hint-animating-indicator {
-  position: absolute;
-  top: -0.25rem;
-  right: -0.25rem;
-}
-
-.spinner {
-  width: 16px;
-  height: 16px;
-  border: 2px solid #333;
-  border-top: 2px solid transparent;
+.animation-spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top: 2px solid white;
   border-radius: 50%;
   animation: spin 1s linear infinite;
 }
@@ -158,140 +242,70 @@
   100% { transform: rotate(360deg); }
 }
 
-/* Score impact section */
-.hint-score-impact {
-  background: #f8f9fa;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
-}
-
-.score-multiplier,
-.projected-score {
+/* No Hints Message */
+.no-hints-message {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.score-multiplier:last-child,
-.projected-score:last-child {
-  margin-bottom: 0;
-}
-
-.label {
-  font-size: 0.9rem;
-  color: #666;
-  font-weight: 500;
-}
-
-.value {
-  font-size: 1rem;
-  font-weight: 600;
-  color: #333;
-}
-
-.value.penalty {
-  color: #dc3545;
-}
-
-.value.normal {
-  color: #28a745;
-}
-
-/* Hint penalties section */
-.hint-penalties {
+  gap: 0.75rem;
+  padding: 1rem;
   background: #fff3cd;
   border: 1px solid #ffeaa7;
   border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
-}
-
-.hint-penalties h4 {
-  margin: 0 0 0.75rem 0;
-  font-size: 1rem;
   color: #856404;
-}
-
-.penalty-list {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.penalty-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.85rem;
-}
-
-.penalty-item.current {
-  background: #fff;
-  border: 1px solid #ffc107;
-  font-weight: 600;
-}
-
-.hints-count {
-  color: #856404;
-}
-
-.multiplier {
-  color: #dc3545;
-  font-weight: 600;
-}
-
-/* Hint info section */
-.hint-info {
-  background: #d1ecf1;
-  border: 1px solid #bee5eb;
-  border-radius: 8px;
-  padding: 0.75rem;
-  text-align: center;
-}
-
-.hint-segments-count {
-  font-size: 0.9rem;
-  color: #0c5460;
   font-weight: 500;
 }
 
-/* Responsive design */
+.no-hints-icon {
+  font-size: 1.5rem;
+}
+
+.no-hints-text {
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+/* Responsive design for mobile Reddit app */
 @media (max-width: 768px) {
   .hint-system {
-    max-width: 100%;
-    min-width: auto;
     padding: 1rem;
+    max-width: 100%;
+  }
+  
+  .hint-header {
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    text-align: center;
   }
   
   .hint-buttons-grid {
+    grid-template-columns: 1fr 1fr;
     gap: 0.5rem;
   }
   
   .hint-button {
-    padding: 0.5rem;
+    padding: 0.75rem 0.5rem;
     min-height: 70px;
   }
   
-  .hint-quadrant-icon {
+  .hint-icon {
     font-size: 1.2rem;
   }
   
-  .hint-quadrant-label {
-    font-size: 0.7rem;
+  .hint-label {
+    font-size: 0.75rem;
   }
   
-  .hint-system-header {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 0.5rem;
+  .score-impact {
+    padding: 0.75rem;
   }
   
-  .hint-stats {
-    align-items: flex-start;
+  .hint-strategy {
+    padding: 0.75rem;
+  }
+  
+  .strategy-list li {
+    font-size: 0.8rem;
   }
 }
 
@@ -300,25 +314,92 @@
     padding: 0.75rem;
   }
   
-  .hint-button {
-    min-height: 60px;
-    padding: 0.4rem;
-  }
-  
-  .hint-quadrant-icon {
+  .hint-title {
     font-size: 1rem;
   }
   
-  .hint-quadrant-label {
-    font-size: 0.65rem;
+  .hint-buttons-grid {
+    grid-template-columns: 1fr;
+    gap: 0.5rem;
   }
   
-  .score-multiplier,
-  .projected-score {
+  .hint-button {
+    flex-direction: row;
+    justify-content: flex-start;
+    padding: 0.75rem;
+    min-height: auto;
+  }
+  
+  .hint-icon {
+    font-size: 1.1rem;
+  }
+  
+  .hint-label {
+    font-size: 0.8rem;
+    text-align: left;
+  }
+  
+  .score-impact {
     font-size: 0.85rem;
   }
   
-  .penalty-item {
-    font-size: 0.8rem;
+  .current-multiplier,
+  .next-hint-impact {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.25rem;
   }
+  
+  .hint-strategy h4 {
+    font-size: 0.9rem;
+  }
+  
+  .strategy-list {
+    padding-left: 1rem;
+  }
+  
+  .strategy-list li {
+    font-size: 0.75rem;
+  }
+}
+
+/* Special animations for different difficulties */
+.hint-button.top-left.animating {
+  animation: hint-pulse 0.5s ease-in-out infinite alternate,
+             quadrant-glow-tl 2s ease-in-out;
+}
+
+.hint-button.top-right.animating {
+  animation: hint-pulse 0.5s ease-in-out infinite alternate,
+             quadrant-glow-tr 2s ease-in-out;
+}
+
+.hint-button.bottom-left.animating {
+  animation: hint-pulse 0.5s ease-in-out infinite alternate,
+             quadrant-glow-bl 2s ease-in-out;
+}
+
+.hint-button.bottom-right.animating {
+  animation: hint-pulse 0.5s ease-in-out infinite alternate,
+             quadrant-glow-br 2s ease-in-out;
+}
+
+@keyframes quadrant-glow-tl {
+  0%, 100% { box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2); }
+  50% { box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4), -5px -5px 15px rgba(102, 126, 234, 0.3); }
+}
+
+@keyframes quadrant-glow-tr {
+  0%, 100% { box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2); }
+  50% { box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4), 5px -5px 15px rgba(102, 126, 234, 0.3); }
+}
+
+@keyframes quadrant-glow-bl {
+  0%, 100% { box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2); }
+  50% { box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4), -5px 5px 15px rgba(102, 126, 234, 0.3); }
+}
+
+@keyframes quadrant-glow-br {
+  0%, 100% { box-shadow: 0 4px 12px rgba(102, 126, 234, 0.2); }
+  50% { box-shadow: 0 8px 24px rgba(102, 126, 234, 0.4), 5px 5px 15px rgba(102, 126, 234, 0.3); }
 }

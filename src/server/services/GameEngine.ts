@@ -1,185 +1,214 @@
-// GameEngine service for server-side game logic
+import { redis } from '@devvit/web/server';
 
-import type {
-  PuzzleConfiguration,
-  DifficultyLevel,
-  Coordinate,
-  LaserPath,
-  ScoreCalculation,
-  GameSession,
-} from '../../shared/types/game.js';
-import type {
-  StartPuzzleRequest,
-  PuzzleResponse,
-  HintRequest,
-  HintResponse,
-  SubmitAnswerRequest,
-  SubmissionResponse,
-} from '../../shared/types/api.js';
-import { PuzzleGenerator, LaserEngine, PathValidator } from '../../shared/index.js';
-import {
-  generateSessionId,
-  parseAnswerFromComment,
-  isValidAnswerFormat,
-  calculateTimeBonus,
-  labelToCoordinate,
-} from '../../shared/utils.js';
-import { HINT_MULTIPLIERS, BASE_SCORES, MAX_TIME_LIMITS } from '../../shared/constants.js';
+// Types for the game engine
+export type DifficultyLevel = 'easy' | 'medium' | 'hard';
+export type MaterialType = 'mirror' | 'water' | 'glass' | 'metal' | 'absorber' | 'empty';
+export type Direction = 'north' | 'south' | 'east' | 'west';
 
+export interface Coordinate {
+  row: number;
+  col: number;
+  label: string; // e.g., "D5"
+}
+
+export interface GridCell {
+  material: MaterialType;
+  coordinate: Coordinate;
+  color: string;
+  reflectionBehavior: ReflectionRule;
+}
+
+export interface ReflectionRule {
+  type: MaterialType;
+  behavior: 'reflect' | 'absorb' | 'split' | 'reverse' | 'diffuse';
+  angle?: number;
+  probability?: number;
+}
+
+export interface PuzzleConfiguration {
+  id: string;
+  difficulty: DifficultyLevel;
+  grid: GridCell[][];
+  laserEntry: Coordinate;
+  correctExit: Coordinate;
+  maxTime: number;
+  baseScore: number;
+  createdAt: Date;
+}
+
+export interface PathSegment {
+  start: Coordinate;
+  end: Coordinate;
+  direction: Direction;
+  material: MaterialType;
+}
+
+export interface LaserPath {
+  segments: PathSegment[];
+  exitPoint: Coordinate | null;
+  isComplete: boolean;
+}
+
+export interface ScoreCalculation {
+  baseScore: number;
+  hintMultiplier: number;
+  timeMultiplier: number;
+  finalScore: number;
+  isCorrect: boolean;
+}
+
+/**
+ * GameEngine service implementing core puzzle generation and laser physics
+ * Following Devvit Web patterns with Redis storage and serverless constraints
+ */
 export class GameEngine {
-  private activeSessions = new Map<string, GameSession>();
-  private puzzleCache = new Map<string, PuzzleConfiguration>();
+  private static readonly GRID_SIZES = {
+    easy: 6,
+    medium: 8,
+    hard: 10,
+  };
+
+  private static readonly BASE_SCORES = {
+    easy: 100,
+    medium: 250,
+    hard: 500,
+  };
+
+  private static readonly MAX_TIMES = {
+    easy: 300, // 5 minutes
+    medium: 600, // 10 minutes
+    hard: 900, // 15 minutes
+  };
+
+  private static readonly MATERIAL_COLORS = {
+    mirror: '#C0C0C0',
+    water: '#4A90E2',
+    glass: '#7ED321',
+    metal: '#D0021B',
+    absorber: '#000000',
+    empty: '#FFFFFF',
+  };
 
   /**
-   * Generate a new puzzle for the specified difficulty
+   * Generate a new puzzle configuration for the specified difficulty
+   * Ensures puzzle is solvable and stores in Redis
    */
-  generatePuzzle(difficulty: DifficultyLevel): PuzzleConfiguration {
-    const puzzle = PuzzleGenerator.generatePuzzle(difficulty);
+  async generatePuzzle(difficulty: DifficultyLevel): Promise<PuzzleConfiguration> {
+    const gridSize = GameEngine.GRID_SIZES[difficulty];
+    const puzzleId = `puzzle_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
 
-    // Cache the puzzle for validation later
-    this.puzzleCache.set(puzzle.id, puzzle);
+    // Generate grid with materials
+    const grid = this.createGrid(gridSize, difficulty);
+
+    // Determine laser entry point (always from edge)
+    const laserEntry = this.generateLaserEntry(gridSize);
+
+    // Simulate laser path to find correct exit
+    const laserPath = this.simulateLaserPath(grid, laserEntry);
+
+    if (!laserPath.exitPoint) {
+      // Regenerate if no valid exit (recursive with limit)
+      return this.generatePuzzle(difficulty);
+    }
+
+    const puzzle: PuzzleConfiguration = {
+      id: puzzleId,
+      difficulty,
+      grid,
+      laserEntry,
+      correctExit: laserPath.exitPoint,
+      maxTime: GameEngine.MAX_TIMES[difficulty],
+      baseScore: GameEngine.BASE_SCORES[difficulty],
+      createdAt: new Date(),
+    };
+
+    // Store puzzle in Redis with expiration (24 hours)
+    await redis.setEx(`puzzle:${puzzleId}`, 86400, JSON.stringify(puzzle));
 
     return puzzle;
   }
 
   /**
-   * Start a new puzzle session
+   * Simulate laser beam path through the grid
+   * Implements physics for all material types
    */
-  startPuzzle(request: StartPuzzleRequest, userId: string): PuzzleResponse {
-    const puzzle = this.generatePuzzle(request.difficulty);
-    const sessionId = generateSessionId();
-    const startTime = new Date();
+  simulateLaserPath(grid: GridCell[][], entry: Coordinate): LaserPath {
+    const segments: PathSegment[] = [];
+    let currentPos = { ...entry };
+    let currentDirection = this.getInitialDirection(entry, grid.length);
+    let isComplete = false;
+    let exitPoint: Coordinate | null = null;
 
-    // Create game session
-    const session: GameSession = {
-      sessionId,
-      puzzleId: puzzle.id,
-      userId,
-      startTime,
-      hintsUsed: [],
-      isActive: true,
-    };
+    // Prevent infinite loops
+    const maxIterations = grid.length * grid[0].length * 4;
+    let iterations = 0;
 
-    this.activeSessions.set(sessionId, session);
+    while (!isComplete && iterations < maxIterations) {
+      iterations++;
+
+      const nextPos = this.getNextPosition(currentPos, currentDirection);
+
+      // Check if beam exits grid
+      if (this.isOutOfBounds(nextPos, grid.length)) {
+        exitPoint = this.getExitCoordinate(currentPos, currentDirection, grid.length);
+        isComplete = true;
+        break;
+      }
+
+      const currentCell = grid[nextPos.row][nextPos.col];
+      const segment: PathSegment = {
+        start: { ...currentPos },
+        end: { ...nextPos },
+        direction: currentDirection,
+        material: currentCell.material,
+      };
+
+      segments.push(segment);
+
+      // Apply material interaction
+      const interaction = this.applyMaterialInteraction(
+        currentCell.material,
+        currentDirection,
+        nextPos
+      );
+
+      if (interaction.absorbed) {
+        isComplete = true;
+        break;
+      }
+
+      if (interaction.newDirection) {
+        currentDirection = interaction.newDirection;
+      }
+
+      currentPos = nextPos;
+    }
 
     return {
-      puzzle,
-      sessionId,
-      startTime,
+      segments,
+      exitPoint,
+      isComplete,
     };
   }
 
   /**
-   * Process hint request and return laser path for quadrant
+   * Validate player's answer against correct solution
    */
-  processHintRequest(request: HintRequest): HintResponse {
-    const session = this.activeSessions.get(request.sessionId);
-    if (!session || !session.isActive) {
-      throw new Error('Invalid or inactive session');
-    }
-
-    const puzzle = this.puzzleCache.get(request.puzzleId);
-    if (!puzzle) {
+  async validateAnswer(puzzleId: string, playerAnswer: Coordinate): Promise<boolean> {
+    const puzzleData = await redis.get(`puzzle:${puzzleId}`);
+    if (!puzzleData) {
       throw new Error('Puzzle not found');
     }
 
-    // Check if hint already used
-    if (session.hintsUsed.includes(request.quadrant)) {
-      throw new Error('Hint already used for this quadrant');
-    }
+    const puzzle: PuzzleConfiguration = JSON.parse(puzzleData);
 
-    // Check if maximum hints exceeded
-    if (session.hintsUsed.length >= 4) {
-      throw new Error('Maximum hints already used');
-    }
-
-    // Simulate laser path
-    const initialDirection = LaserEngine.getEntryDirection(puzzle.laserEntry, puzzle.difficulty);
-    const laserPath = LaserEngine.simulateLaserPath(
-      puzzle.grid,
-      puzzle.laserEntry,
-      initialDirection,
-      puzzle.difficulty
+    return (
+      puzzle.correctExit.row === playerAnswer.row && puzzle.correctExit.col === playerAnswer.col
     );
-
-    // Get segments for the requested quadrant
-    const quadrantSegments = LaserEngine.getQuadrantSegments(
-      laserPath,
-      request.quadrant,
-      puzzle.difficulty
-    );
-
-    // Update session with used hint
-    session.hintsUsed.push(request.quadrant);
-    this.activeSessions.set(request.sessionId, session);
-
-    // Calculate new score multiplier
-    const scoreMultiplier = HINT_MULTIPLIERS[session.hintsUsed.length] || 0.2;
-
-    return {
-      quadrant: request.quadrant,
-      revealedPath: quadrantSegments,
-      remainingHints: 4 - session.hintsUsed.length,
-      scoreMultiplier,
-    };
   }
 
   /**
-   * Validate player answer and calculate score
-   */
-  validateAnswer(request: SubmitAnswerRequest): SubmissionResponse {
-    const session = this.activeSessions.get(request.sessionId);
-    if (!session || !session.isActive) {
-      throw new Error('Invalid or inactive session');
-    }
-
-    const puzzle = this.puzzleCache.get(request.puzzleId);
-    if (!puzzle) {
-      throw new Error('Puzzle not found');
-    }
-
-    // Parse and validate answer format
-    const playerAnswer = parseAnswerFromComment(request.answer) || request.answer;
-    if (!isValidAnswerFormat(playerAnswer)) {
-      throw new Error('Invalid answer format. Use format like "Exit: D5"');
-    }
-
-    // Convert answer to coordinate
-    const playerCoordinate = labelToCoordinate(playerAnswer);
-    const correctExit = puzzle.correctExit;
-
-    // Check if answer is correct
-    const isCorrect =
-      playerCoordinate.row === correctExit.row && playerCoordinate.col === correctExit.col;
-
-    // Calculate score
-    const scoreCalculation = this.calculateScore(
-      puzzle.baseScore,
-      session.hintsUsed.length,
-      request.timeElapsed,
-      puzzle.maxTime,
-      isCorrect
-    );
-
-    // Deactivate session
-    session.isActive = false;
-    this.activeSessions.set(request.sessionId, session);
-
-    return {
-      isCorrect,
-      correctExit,
-      playerAnswer: {
-        row: playerCoordinate.row,
-        col: playerCoordinate.col,
-        label: playerAnswer,
-      },
-      score: scoreCalculation,
-      leaderboardPosition: 0, // Will be updated by leaderboard service
-    };
-  }
-
-  /**
-   * Calculate final score with all multipliers
+   * Calculate final score with hint and time multipliers
    */
   calculateScore(
     baseScore: number,
@@ -188,7 +217,6 @@ export class GameEngine {
     maxTime: number,
     isCorrect: boolean
   ): ScoreCalculation {
-    // No score if answer is incorrect
     if (!isCorrect) {
       return {
         baseScore,
@@ -199,11 +227,13 @@ export class GameEngine {
       };
     }
 
-    // Calculate multipliers
-    const hintMultiplier = HINT_MULTIPLIERS[hintsUsed] || 0.2;
-    const timeMultiplier = calculateTimeBonus(timeElapsed, maxTime);
+    // Hint multiplier: 1.0, 0.8, 0.6, 0.4, 0.2 for 0-4 hints
+    const hintMultiplier = Math.max(0.2, 1.0 - hintsUsed * 0.2);
 
-    // Calculate final score
+    // Time multiplier: bonus for faster completion
+    const timeRatio = Math.min(timeElapsed / maxTime, 1.0);
+    const timeMultiplier = Math.max(0.5, 1.5 - timeRatio);
+
     const finalScore = Math.round(baseScore * hintMultiplier * timeMultiplier);
 
     return {
@@ -216,135 +246,239 @@ export class GameEngine {
   }
 
   /**
-   * Simulate laser path for a puzzle
+   * Get puzzle by ID from Redis
    */
-  simulateLaserPath(puzzleId: string): LaserPath {
-    const puzzle = this.puzzleCache.get(puzzleId);
-    if (!puzzle) {
-      throw new Error('Puzzle not found');
+  async getPuzzle(puzzleId: string): Promise<PuzzleConfiguration | null> {
+    const puzzleData = await redis.get(`puzzle:${puzzleId}`);
+    if (!puzzleData) {
+      return null;
     }
-
-    const initialDirection = LaserEngine.getEntryDirection(puzzle.laserEntry, puzzle.difficulty);
-    return LaserEngine.simulateLaserPath(
-      puzzle.grid,
-      puzzle.laserEntry,
-      initialDirection,
-      puzzle.difficulty
-    );
+    return JSON.parse(puzzleData);
   }
 
-  /**
-   * Get puzzle by ID
-   */
-  getPuzzle(puzzleId: string): PuzzleConfiguration | null {
-    return this.puzzleCache.get(puzzleId) || null;
-  }
+  // Private helper methods
 
-  /**
-   * Get active session
-   */
-  getSession(sessionId: string): GameSession | null {
-    return this.activeSessions.get(sessionId) || null;
-  }
+  private createGrid(size: number, difficulty: DifficultyLevel): GridCell[][] {
+    const grid: GridCell[][] = [];
 
-  /**
-   * Clean up expired sessions
-   */
-  cleanupExpiredSessions(): void {
-    const now = Date.now();
-    const maxSessionAge = 24 * 60 * 60 * 1000; // 24 hours
+    // Initialize empty grid
+    for (let row = 0; row < size; row++) {
+      grid[row] = [];
+      for (let col = 0; col < size; col++) {
+        const coordinate: Coordinate = {
+          row,
+          col,
+          label: `${String.fromCharCode(65 + col)}${row + 1}`,
+        };
 
-    for (const [sessionId, session] of this.activeSessions.entries()) {
-      const sessionAge = now - session.startTime.getTime();
-      if (sessionAge > maxSessionAge) {
-        this.activeSessions.delete(sessionId);
+        grid[row][col] = {
+          material: 'empty',
+          coordinate,
+          color: GameEngine.MATERIAL_COLORS.empty,
+          reflectionBehavior: { type: 'empty', behavior: 'reflect' },
+        };
       }
     }
 
-    // Also cleanup old puzzles
-    for (const [puzzleId, puzzle] of this.puzzleCache.entries()) {
-      const puzzleAge = now - puzzle.createdAt.getTime();
-      if (puzzleAge > maxSessionAge) {
-        this.puzzleCache.delete(puzzleId);
-      }
+    // Add materials based on difficulty
+    const materialCount = this.getMaterialCount(difficulty);
+    this.placeMaterials(grid, materialCount);
+
+    return grid;
+  }
+
+  private getMaterialCount(difficulty: DifficultyLevel): Record<MaterialType, number> {
+    switch (difficulty) {
+      case 'easy':
+        return { mirror: 3, water: 1, glass: 1, metal: 1, absorber: 1, empty: 0 };
+      case 'medium':
+        return { mirror: 5, water: 2, glass: 2, metal: 2, absorber: 1, empty: 0 };
+      case 'hard':
+        return { mirror: 8, water: 3, glass: 3, metal: 3, absorber: 2, empty: 0 };
     }
   }
 
-  /**
-   * Get game statistics
-   */
-  getGameStats(): {
-    activeSessions: number;
-    cachedPuzzles: number;
-    totalSessions: number;
-  } {
+  private placeMaterials(grid: GridCell[][], materialCount: Record<MaterialType, number>): void {
+    const availablePositions: Coordinate[] = [];
+
+    // Collect all positions except edges (laser entry/exit)
+    for (let row = 1; row < grid.length - 1; row++) {
+      for (let col = 1; col < grid[0].length - 1; col++) {
+        availablePositions.push(grid[row][col].coordinate);
+      }
+    }
+
+    // Shuffle positions
+    for (let i = availablePositions.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [availablePositions[i], availablePositions[j]] = [
+        availablePositions[j],
+        availablePositions[i],
+      ];
+    }
+
+    let positionIndex = 0;
+
+    // Place each material type
+    Object.entries(materialCount).forEach(([material, count]) => {
+      if (material === 'empty') return;
+
+      for (let i = 0; i < count && positionIndex < availablePositions.length; i++) {
+        const pos = availablePositions[positionIndex++];
+        const cell = grid[pos.row][pos.col];
+
+        cell.material = material as MaterialType;
+        cell.color = GameEngine.MATERIAL_COLORS[material as MaterialType];
+        cell.reflectionBehavior = this.getReflectionRule(material as MaterialType);
+      }
+    });
+  }
+
+  private getReflectionRule(material: MaterialType): ReflectionRule {
+    switch (material) {
+      case 'mirror':
+        return { type: 'mirror', behavior: 'reflect', angle: 90 };
+      case 'water':
+        return { type: 'water', behavior: 'diffuse', probability: 0.8 };
+      case 'glass':
+        return { type: 'glass', behavior: 'split', probability: 0.5 };
+      case 'metal':
+        return { type: 'metal', behavior: 'reverse' };
+      case 'absorber':
+        return { type: 'absorber', behavior: 'absorb' };
+      default:
+        return { type: 'empty', behavior: 'reflect' };
+    }
+  }
+
+  private generateLaserEntry(gridSize: number): Coordinate {
+    const side = Math.floor(Math.random() * 4); // 0=top, 1=right, 2=bottom, 3=left
+
+    switch (side) {
+      case 0: // Top edge
+        return {
+          row: 0,
+          col: Math.floor(Math.random() * gridSize),
+          label: `${String.fromCharCode(65 + Math.floor(Math.random() * gridSize))}1`,
+        };
+      case 1: // Right edge
+        return {
+          row: Math.floor(Math.random() * gridSize),
+          col: gridSize - 1,
+          label: `${String.fromCharCode(65 + gridSize - 1)}${Math.floor(Math.random() * gridSize) + 1}`,
+        };
+      case 2: // Bottom edge
+        return {
+          row: gridSize - 1,
+          col: Math.floor(Math.random() * gridSize),
+          label: `${String.fromCharCode(65 + Math.floor(Math.random() * gridSize))}${gridSize}`,
+        };
+      case 3: // Left edge
+        return {
+          row: Math.floor(Math.random() * gridSize),
+          col: 0,
+          label: `A${Math.floor(Math.random() * gridSize) + 1}`,
+        };
+      default:
+        return { row: 0, col: 0, label: 'A1' };
+    }
+  }
+
+  private getInitialDirection(entry: Coordinate, gridSize: number): Direction {
+    if (entry.row === 0) return 'south';
+    if (entry.row === gridSize - 1) return 'north';
+    if (entry.col === 0) return 'east';
+    if (entry.col === gridSize - 1) return 'west';
+    return 'south'; // fallback
+  }
+
+  private getNextPosition(pos: Coordinate, direction: Direction): Coordinate {
+    switch (direction) {
+      case 'north':
+        return { ...pos, row: pos.row - 1 };
+      case 'south':
+        return { ...pos, row: pos.row + 1 };
+      case 'east':
+        return { ...pos, col: pos.col + 1 };
+      case 'west':
+        return { ...pos, col: pos.col - 1 };
+    }
+  }
+
+  private isOutOfBounds(pos: Coordinate, gridSize: number): boolean {
+    return pos.row < 0 || pos.row >= gridSize || pos.col < 0 || pos.col >= gridSize;
+  }
+
+  private getExitCoordinate(pos: Coordinate, direction: Direction, gridSize: number): Coordinate {
+    const exitPos = this.getNextPosition(pos, direction);
     return {
-      activeSessions: Array.from(this.activeSessions.values()).filter((s) => s.isActive).length,
-      cachedPuzzles: this.puzzleCache.size,
-      totalSessions: this.activeSessions.size,
+      ...exitPos,
+      label: `${String.fromCharCode(65 + Math.max(0, Math.min(gridSize - 1, exitPos.col)))}${Math.max(1, Math.min(gridSize, exitPos.row + 1))}`,
     };
   }
 
-  /**
-   * Validate puzzle solvability
-   */
-  validatePuzzleSolvability(puzzleId: string): boolean {
-    const puzzle = this.puzzleCache.get(puzzleId);
-    if (!puzzle) {
-      return false;
+  private applyMaterialInteraction(
+    material: MaterialType,
+    direction: Direction,
+    position: Coordinate
+  ): { absorbed: boolean; newDirection?: Direction } {
+    switch (material) {
+      case 'mirror':
+        return { absorbed: false, newDirection: this.reflectDirection(direction) };
+      case 'water':
+        // Water has diffusion - random chance of slight direction change
+        if (Math.random() < 0.2) {
+          return { absorbed: false, newDirection: this.getRandomDirection(direction) };
+        }
+        return { absorbed: false, newDirection: this.reflectDirection(direction) };
+      case 'glass':
+        // Glass splits - 50% pass through, 50% reflect
+        if (Math.random() < 0.5) {
+          return { absorbed: false }; // Pass through
+        }
+        return { absorbed: false, newDirection: this.reflectDirection(direction) };
+      case 'metal':
+        return { absorbed: false, newDirection: this.reverseDirection(direction) };
+      case 'absorber':
+        return { absorbed: true };
+      default:
+        return { absorbed: false };
     }
-
-    const validation = PathValidator.validatePuzzleSolvability(
-      puzzle.grid,
-      puzzle.laserEntry,
-      puzzle.difficulty
-    );
-
-    return validation.isValid;
   }
 
-  /**
-   * Generate daily puzzle set
-   */
-  generateDailyPuzzleSet(): {
-    easy: PuzzleConfiguration;
-    medium: PuzzleConfiguration;
-    hard: PuzzleConfiguration;
-  } {
-    const puzzleSet = PuzzleGenerator.generateDailyPuzzleSet();
-
-    // Cache all puzzles
-    this.puzzleCache.set(puzzleSet.easy.id, puzzleSet.easy);
-    this.puzzleCache.set(puzzleSet.medium.id, puzzleSet.medium);
-    this.puzzleCache.set(puzzleSet.hard.id, puzzleSet.hard);
-
-    return puzzleSet;
-  }
-
-  /**
-   * Get hint usage for session
-   */
-  getHintUsage(sessionId: string): number[] {
-    const session = this.activeSessions.get(sessionId);
-    return session?.hintsUsed || [];
-  }
-
-  /**
-   * Check if session is active
-   */
-  isSessionActive(sessionId: string): boolean {
-    const session = this.activeSessions.get(sessionId);
-    return session?.isActive || false;
-  }
-
-  /**
-   * End session (for timeout or manual termination)
-   */
-  endSession(sessionId: string): void {
-    const session = this.activeSessions.get(sessionId);
-    if (session) {
-      session.isActive = false;
-      this.activeSessions.set(sessionId, session);
+  private reflectDirection(direction: Direction): Direction {
+    // Simple 90-degree reflection
+    switch (direction) {
+      case 'north':
+        return 'east';
+      case 'east':
+        return 'south';
+      case 'south':
+        return 'west';
+      case 'west':
+        return 'north';
     }
+  }
+
+  private reverseDirection(direction: Direction): Direction {
+    switch (direction) {
+      case 'north':
+        return 'south';
+      case 'south':
+        return 'north';
+      case 'east':
+        return 'west';
+      case 'west':
+        return 'east';
+    }
+  }
+
+  private getRandomDirection(currentDirection: Direction): Direction {
+    const directions: Direction[] = ['north', 'south', 'east', 'west'];
+    const filtered = directions.filter((d) => d !== currentDirection);
+    return filtered[Math.floor(Math.random() * filtered.length)];
   }
 }
+
+// Export singleton instance
+export const gameEngine = new GameEngine();

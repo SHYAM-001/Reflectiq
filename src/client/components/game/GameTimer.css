@@ -1,271 +1,335 @@
-/* GameTimer component styles */
+/* GameTimer component styles optimized for Devvit Web */
 
 .game-timer {
   background: rgba(255, 255, 255, 0.95);
   border-radius: 12px;
   padding: 1.5rem;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-  max-width: 280px;
-  min-width: 240px;
+  max-width: 300px;
+  width: 100%;
   transition: all 0.3s ease;
 }
 
-.game-timer--normal {
-  border-left: 4px solid #28a745;
-  color: #28a745;
-}
-
-.game-timer--caution {
-  border-left: 4px solid #ffc107;
-  color: #ffc107;
-}
-
-.game-timer--warning {
-  border-left: 4px solid #fd7e14;
-  color: #fd7e14;
-}
-
-.game-timer--critical {
-  border-left: 4px solid #dc3545;
-  color: #dc3545;
-  animation: timer-pulse 1s infinite;
-}
-
-.game-timer--expired {
-  border-left: 4px solid #6c757d;
-  color: #6c757d;
-  background: rgba(108, 117, 125, 0.1);
-}
-
-@keyframes timer-pulse {
-  0%, 100% {
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
-  }
-  50% {
-    box-shadow: 0 4px 20px rgba(220, 53, 69, 0.3);
-  }
-}
-
-.timer-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1.5rem;
-  padding-bottom: 0.75rem;
-  border-bottom: 2px solid #e0e0e0;
-}
-
-.timer-header h3 {
-  margin: 0;
-  color: #333;
-  font-size: 1.2rem;
-  font-weight: 600;
-}
-
-.timer-status {
-  font-size: 0.9rem;
-  font-weight: 500;
-  padding: 0.25rem 0.75rem;
-  border-radius: 12px;
-  background: currentColor;
-  color: white;
-  opacity: 0.9;
-}
-
-/* Timer display */
+/* Timer Display */
 .timer-display {
   display: flex;
-  justify-content: center;
-  margin-bottom: 1.5rem;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
 }
 
-.time-circle {
-  position: relative;
-  width: 120px;
-  height: 120px;
-}
-
-.timer-svg {
-  width: 100%;
-  height: 100%;
-  transform: rotate(0deg);
-}
-
-.timer-progress {
-  transition: stroke-dashoffset 0.1s ease;
-}
-
-.time-text {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  text-align: center;
-}
-
-.elapsed-time {
-  font-size: 1.4rem;
+.timer-text {
+  font-family: 'Courier New', monospace;
+  font-size: 2rem;
   font-weight: 700;
-  color: #333;
-  line-height: 1;
-  margin-bottom: 0.25rem;
+  text-align: center;
+  transition: all 0.2s ease;
+  min-width: 120px;
 }
 
-.remaining-time {
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: #666;
-  line-height: 1;
-}
-
-/* Timer stats */
-.timer-stats {
+.timer-state {
   display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 1rem;
-}
-
-.stat-item {
-  display: flex;
-  justify-content: space-between;
   align-items: center;
-  padding: 0.5rem;
-  background: #f8f9fa;
-  border-radius: 6px;
+  margin-left: 1rem;
 }
 
-.stat-label {
-  font-size: 0.9rem;
-  color: #666;
-  font-weight: 500;
+.state-icon {
+  font-size: 1.5rem;
+  animation: pulse 2s infinite;
 }
 
-.stat-value {
-  font-size: 0.9rem;
-  font-weight: 600;
-  color: #333;
+.state-icon.running {
+  animation: tick 1s infinite;
 }
 
-/* Time bonus section */
-.time-bonus-section {
-  background: #e8f5e8;
-  border: 1px solid #c3e6cb;
-  border-radius: 8px;
-  padding: 1rem;
-  margin-bottom: 1rem;
+.state-icon.paused {
+  animation: none;
+  opacity: 0.7;
 }
 
-.bonus-header {
-  margin-bottom: 0.75rem;
+.state-icon.completed {
+  animation: bounce 0.6s ease-in-out;
 }
 
-.bonus-header h4 {
-  margin: 0;
-  font-size: 1rem;
-  color: #155724;
+.state-icon.expired {
+  animation: shake 0.5s ease-in-out;
 }
 
-.bonus-stats {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  margin-bottom: 0.75rem;
-}
-
-.bonus-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.bonus-label {
-  font-size: 0.85rem;
-  color: #155724;
-  font-weight: 500;
-}
-
-.bonus-value {
-  font-size: 0.9rem;
-  font-weight: 600;
-}
-
-.bonus-value.good {
+/* Timer State Colors */
+.game-timer.normal .timer-text {
   color: #28a745;
 }
 
-.bonus-value.poor {
-  color: #dc3545;
+.game-timer.warning .timer-text {
+  color: #ffc107;
+  animation: pulse-warning 1s infinite;
 }
 
-.bonus-bar {
+.game-timer.critical .timer-text {
+  color: #dc3545;
+  animation: pulse-critical 0.5s infinite;
+}
+
+.game-timer.expired .timer-text {
+  color: #dc3545;
+  animation: flash-red 0.3s infinite;
+}
+
+.game-timer.completed .timer-text {
+  color: #28a745;
+}
+
+.game-timer.paused .timer-text {
+  color: #6c757d;
+  opacity: 0.8;
+}
+
+/* Progress Bar */
+.timer-progress-container {
   width: 100%;
   height: 8px;
-  background: #d4edda;
+  background: #e0e0e0;
   border-radius: 4px;
   overflow: hidden;
+  margin-bottom: 1rem;
 }
 
-.bonus-fill {
+.timer-progress-bar {
   height: 100%;
-  background: linear-gradient(90deg, #dc3545 0%, #ffc107 50%, #28a745 100%);
-  transition: width 0.3s ease;
+  background: linear-gradient(90deg, #28a745, #ffc107, #dc3545);
+  transition: width 0.1s linear;
   border-radius: 4px;
 }
 
-/* Timer expired message */
-.timer-expired-message {
+.game-timer.normal .timer-progress-bar {
+  background: #28a745;
+}
+
+.game-timer.warning .timer-progress-bar {
+  background: #ffc107;
+}
+
+.game-timer.critical .timer-progress-bar {
+  background: #dc3545;
+  animation: pulse-progress 0.5s infinite;
+}
+
+.game-timer.expired .timer-progress-bar {
+  background: #dc3545;
+  width: 100% !important;
+}
+
+.game-timer.completed .timer-progress-bar {
+  background: #28a745;
+}
+
+.game-timer.paused .timer-progress-bar {
+  background: #6c757d;
+}
+
+/* Timer Controls */
+.timer-controls {
   display: flex;
-  flex-direction: column;
+  gap: 0.75rem;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.timer-btn {
+  display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 1rem;
-  background: #f8d7da;
-  border: 1px solid #f5c6cb;
+  padding: 0.5rem 1rem;
+  border: 2px solid transparent;
   border-radius: 8px;
+  background: #f8f9fa;
+  color: #333;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 80px;
+  justify-content: center;
+}
+
+.timer-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.start-btn, .resume-btn {
+  background: #28a745;
+  color: white;
+  border-color: #28a745;
+}
+
+.start-btn:hover, .resume-btn:hover {
+  background: #218838;
+  border-color: #218838;
+}
+
+.pause-btn {
+  background: #ffc107;
+  color: #333;
+  border-color: #ffc107;
+}
+
+.pause-btn:hover {
+  background: #e0a800;
+  border-color: #e0a800;
+}
+
+.reset-btn {
+  background: #6c757d;
+  color: white;
+  border-color: #6c757d;
+}
+
+.reset-btn:hover {
+  background: #5a6268;
+  border-color: #5a6268;
+}
+
+/* Timer Info Messages */
+.timer-info {
+  min-height: 2rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.timer-warning,
+.timer-message {
   text-align: center;
+  font-weight: 500;
+  padding: 0.5rem;
+  border-radius: 6px;
+  font-size: 0.9rem;
 }
 
-.expired-icon {
-  font-size: 2rem;
-  line-height: 1;
+.timer-warning {
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid #ffc107;
 }
 
-.expired-text {
-  font-size: 1.1rem;
-  font-weight: 600;
+.warning-message {
+  color: #856404;
+}
+
+.critical-message {
+  color: #dc3545;
+  font-weight: 700;
+  animation: pulse-text 0.5s infinite;
+}
+
+.expired-message {
+  background: rgba(220, 53, 69, 0.1);
+  border: 1px solid #dc3545;
   color: #721c24;
 }
 
-/* Responsive design */
+.completed-message {
+  background: rgba(40, 167, 69, 0.1);
+  border: 1px solid #28a745;
+  color: #155724;
+}
+
+.paused-message {
+  background: rgba(108, 117, 125, 0.1);
+  border: 1px solid #6c757d;
+  color: #495057;
+}
+
+/* Animations */
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes tick {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.1); }
+  100% { transform: scale(1); }
+}
+
+@keyframes bounce {
+  0%, 20%, 50%, 80%, 100% { transform: translateY(0); }
+  40% { transform: translateY(-10px); }
+  60% { transform: translateY(-5px); }
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-5px); }
+  75% { transform: translateX(5px); }
+}
+
+@keyframes pulse-warning {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.02); }
+}
+
+@keyframes pulse-critical {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.7; transform: scale(1.05); }
+}
+
+@keyframes flash-red {
+  0%, 100% { background-color: transparent; }
+  50% { background-color: rgba(220, 53, 69, 0.2); }
+}
+
+@keyframes pulse-progress {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+@keyframes pulse-text {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.05); }
+}
+
+/* Responsive Design */
 @media (max-width: 768px) {
   .game-timer {
-    max-width: 100%;
-    min-width: auto;
     padding: 1rem;
+    max-width: 100%;
   }
   
-  .time-circle {
-    width: 100px;
-    height: 100px;
-  }
-  
-  .elapsed-time {
-    font-size: 1.2rem;
-  }
-  
-  .remaining-time {
-    font-size: 0.8rem;
-  }
-  
-  .timer-header {
+  .timer-display {
     flex-direction: column;
-    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+  }
+  
+  .timer-text {
+    font-size: 1.75rem;
+    min-width: auto;
+  }
+  
+  .timer-state {
+    margin-left: 0;
+  }
+  
+  .timer-controls {
+    flex-wrap: wrap;
     gap: 0.5rem;
   }
   
-  .timer-status {
-    align-self: flex-end;
+  .timer-btn {
+    min-width: 70px;
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+  }
+  
+  .timer-info {
+    min-height: 1.5rem;
+  }
+  
+  .timer-warning,
+  .timer-message {
+    font-size: 0.8rem;
+    padding: 0.4rem;
   }
 }
 
@@ -274,33 +338,57 @@
     padding: 0.75rem;
   }
   
-  .time-circle {
-    width: 80px;
-    height: 80px;
-  }
-  
-  .elapsed-time {
-    font-size: 1rem;
-  }
-  
-  .remaining-time {
-    font-size: 0.7rem;
-  }
-  
-  .stat-item,
-  .bonus-item {
-    font-size: 0.8rem;
-  }
-  
-  .timer-expired-message {
-    padding: 0.75rem;
-  }
-  
-  .expired-icon {
+  .timer-text {
     font-size: 1.5rem;
   }
   
-  .expired-text {
-    font-size: 1rem;
+  .state-icon {
+    font-size: 1.2rem;
+  }
+  
+  .timer-controls {
+    flex-direction: column;
+    align-items: center;
+  }
+  
+  .timer-btn {
+    width: 100%;
+    max-width: 150px;
+  }
+  
+  .timer-warning,
+  .timer-message {
+    font-size: 0.75rem;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .game-timer {
+    border: 2px solid #000;
+  }
+  
+  .timer-progress-container {
+    border: 1px solid #000;
+  }
+  
+  .timer-btn {
+    border-width: 2px;
+  }
+}
+
+/* Reduced motion support */
+@media (prefers-reduced-motion: reduce) {
+  .game-timer,
+  .timer-text,
+  .timer-btn,
+  .timer-progress-bar {
+    transition: none;
+  }
+  
+  .state-icon,
+  .timer-text,
+  .timer-progress-bar {
+    animation: none !important;
   }
 }

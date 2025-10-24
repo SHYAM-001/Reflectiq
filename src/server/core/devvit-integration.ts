@@ -7,7 +7,7 @@ import { GameEngine } from '../services/GameEngine.js';
 import { RedisManager } from '../services/RedisManager.js';
 import { CommentMonitor } from '../services/CommentMonitor.js';
 import { AnswerSubmissionWorkflow } from '../services/AnswerSubmissionWorkflow.js';
-import { DailyPuzzleGenerator } from '../services/DailyPuzzleGenerator.js';
+import { dailyPuzzleGenerator } from '../services/DailyPuzzleGenerator.js';
 import { RedditPostAutomation } from '../services/RedditPostAutomation.js';
 
 // Initialize services
@@ -15,7 +15,7 @@ let gameEngine: GameEngine;
 let redisManager: RedisManager;
 let commentMonitor: CommentMonitor;
 let answerSubmissionWorkflow: AnswerSubmissionWorkflow;
-let dailyPuzzleGenerator: DailyPuzzleGenerator;
+// dailyPuzzleGenerator is imported as singleton
 let redditPostAutomation: RedditPostAutomation;
 
 /**
@@ -39,8 +39,7 @@ export function initializeServices(): void {
       commentMonitor
     );
 
-    // Initialize daily puzzle generator
-    dailyPuzzleGenerator = new DailyPuzzleGenerator(redisManager);
+    // Daily puzzle generator is already initialized as singleton
 
     // Initialize Reddit post automation
     redditPostAutomation = new RedditPostAutomation(dailyPuzzleGenerator, redisManager);

@@ -2,14 +2,8 @@
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { RedisManager } from '../RedisManager.js';
-import type {
-  PuzzleConfiguration,
-  GameSession,
-  LeaderboardEntry,
-} from '../../../shared/types/game.js';
-import type { DailyPuzzleSet, UserDailyProgress } from '../../../shared/types/daily-puzzles.js';
-import { createCoordinate } from '../../../shared/utils.js';
-import { MATERIAL_COLORS, REFLECTION_BEHAVIORS } from '../../../shared/constants.js';
+import type { LeaderboardEntry, GameSession, UserProgress } from '../RedisManager.js';
+import type { PuzzleConfiguration, DifficultyLevel } from '../GameEngine.js';
 
 // Mock Redis client
 class MockRedisClient {
@@ -128,19 +122,10 @@ describe('RedisManager Integration Tests', () => {
   // Helper function to create a test puzzle
   const createTestPuzzle = (): PuzzleConfiguration => ({
     id: 'test-puzzle-123',
-    difficulty: 'easy',
-    grid: [
-      [
-        {
-          material: 'empty',
-          coordinate: createCoordinate(0, 0),
-          color: MATERIAL_COLORS.empty,
-          reflectionBehavior: REFLECTION_BEHAVIORS.empty,
-        },
-      ],
-    ],
-    laserEntry: createCoordinate(0, 0),
-    correctExit: createCoordinate(0, 1),
+    difficulty: 'easy' as DifficultyLevel,
+    grid: [],
+    laserEntry: { row: 0, col: 0, label: 'A1' },
+    correctExit: { row: 0, col: 1, label: 'B1' },
     maxTime: 300,
     baseScore: 100,
     createdAt: new Date(),

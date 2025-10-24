@@ -27,11 +27,12 @@ graph TB
 
 ### Technology Stack
 
-- **Frontend**: React.js with TypeScript for puzzle visualization and user interaction
-- **Backend**: Express.js server with Devvit SDK integration
-- **Storage**: Redis for game state, leaderboards, and user progress
-- **Platform**: Devvit framework for Reddit integration and hosting
-- **Build System**: Vite for client and server bundling
+- **Frontend**: React.js with TypeScript using @devvit/web/client SDK
+- **Backend**: Express.js server with @devvit/web/server SDK integration
+- **Storage**: Redis for game state, leaderboards, and user progress (per-installation isolation)
+- **Platform**: Devvit Web framework for Reddit integration and serverless hosting
+- **Build System**: Vite for client and server bundling with devvit.json configuration
+- **Limitations**: Serverless endpoints (30s max), no WebSockets, 4MB payload limit
 
 ## Components and Interfaces
 
@@ -163,22 +164,22 @@ Responsibilities:
 - Validate player answer submissions
 - Apply scoring algorithms with multipliers
 
-#### CommentMonitor Service
+#### GameSubmission Service
 
 ```typescript
-interface CommentMonitor {
-  watchForAnswers(postId: string): void;
-  parseAnswerFormat(comment: string): Coordinate | null;
-  ensurePrivateVisibility(commentId: string): boolean;
+interface GameSubmission {
+  validateAnswer(puzzleId: string, answer: Coordinate): boolean;
+  processSubmission(submission: AnswerSubmission): SubmissionResult;
+  updateLeaderboard(result: SubmissionResult): void;
 }
 ```
 
 Responsibilities:
 
-- Monitor Reddit comments for answer submissions
-- Parse and validate answer format
-- Ensure comment privacy settings
-- Trigger score calculation on valid submissions
+- Validate in-game answer submissions
+- Process answer correctness and scoring
+- Update leaderboards immediately
+- Trigger post-game feedback and statistics
 
 #### DailyPuzzleGenerator Service
 
@@ -463,12 +464,20 @@ interface ErrorResponse {
 
 ## Performance Considerations
 
+### Devvit Web Constraints
+
+- **Serverless Architecture**: All server endpoints must complete within 30 seconds
+- **Payload Limits**: Maximum 4MB request payload, 10MB response size
+- **No WebSockets**: Use polling or server-sent events for real-time features
+- **CSP Restrictions**: Client can only fetch from app domain, no external APIs
+
 ### Client Optimization
 
 - **Lazy Loading**: Load puzzle assets and animations on demand
 - **Canvas Rendering**: Use HTML5 Canvas for smooth laser beam animations
 - **State Management**: Implement efficient React state updates for real-time features
 - **Memory Management**: Clean up animation timers and event listeners
+- **Mobile First**: Optimize for Reddit mobile app webview performance
 
 ### Server Optimization
 
