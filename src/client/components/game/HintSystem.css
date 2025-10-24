@@ -1,0 +1,324 @@
+/* HintSystem component styles */
+
+.hint-system {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  max-width: 320px;
+  min-width: 280px;
+}
+
+.hint-system-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.hint-system-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.hint-stats {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+}
+
+.hints-remaining {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #666;
+  background: #f0f0f0;
+  padding: 0.25rem 0.5rem;
+  border-radius: 12px;
+}
+
+/* Hint buttons grid */
+.hint-buttons-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.hint-button {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border: none;
+  border-radius: 8px;
+  padding: 0.75rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  min-height: 80px;
+}
+
+.hint-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+}
+
+.hint-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.hint-button--available {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.hint-button--used {
+  background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
+  color: white;
+  cursor: default;
+}
+
+.hint-button--disabled {
+  background: linear-gradient(135deg, #6c757d 0%, #adb5bd 100%);
+  color: #ffffff;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.hint-button--animating {
+  background: linear-gradient(135deg, #ffd700 0%, #ffed4e 100%);
+  color: #333;
+  animation: hint-pulse 1s infinite;
+}
+
+@keyframes hint-pulse {
+  0%, 100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.05);
+  }
+}
+
+.hint-button-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  position: relative;
+}
+
+.hint-quadrant-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.hint-quadrant-label {
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-align: center;
+  line-height: 1.2;
+}
+
+.hint-used-indicator {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.25rem;
+  background: #28a745;
+  color: white;
+  border-radius: 50%;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+  font-weight: bold;
+}
+
+.hint-animating-indicator {
+  position: absolute;
+  top: -0.25rem;
+  right: -0.25rem;
+}
+
+.spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid #333;
+  border-top: 2px solid transparent;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+/* Score impact section */
+.hint-score-impact {
+  background: #f8f9fa;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.score-multiplier,
+.projected-score {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 0.5rem;
+}
+
+.score-multiplier:last-child,
+.projected-score:last-child {
+  margin-bottom: 0;
+}
+
+.label {
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.value {
+  font-size: 1rem;
+  font-weight: 600;
+  color: #333;
+}
+
+.value.penalty {
+  color: #dc3545;
+}
+
+.value.normal {
+  color: #28a745;
+}
+
+/* Hint penalties section */
+.hint-penalties {
+  background: #fff3cd;
+  border: 1px solid #ffeaa7;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.hint-penalties h4 {
+  margin: 0 0 0.75rem 0;
+  font-size: 1rem;
+  color: #856404;
+}
+
+.penalty-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.penalty-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.penalty-item.current {
+  background: #fff;
+  border: 1px solid #ffc107;
+  font-weight: 600;
+}
+
+.hints-count {
+  color: #856404;
+}
+
+.multiplier {
+  color: #dc3545;
+  font-weight: 600;
+}
+
+/* Hint info section */
+.hint-info {
+  background: #d1ecf1;
+  border: 1px solid #bee5eb;
+  border-radius: 8px;
+  padding: 0.75rem;
+  text-align: center;
+}
+
+.hint-segments-count {
+  font-size: 0.9rem;
+  color: #0c5460;
+  font-weight: 500;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .hint-system {
+    max-width: 100%;
+    min-width: auto;
+    padding: 1rem;
+  }
+  
+  .hint-buttons-grid {
+    gap: 0.5rem;
+  }
+  
+  .hint-button {
+    padding: 0.5rem;
+    min-height: 70px;
+  }
+  
+  .hint-quadrant-icon {
+    font-size: 1.2rem;
+  }
+  
+  .hint-quadrant-label {
+    font-size: 0.7rem;
+  }
+  
+  .hint-system-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .hint-stats {
+    align-items: flex-start;
+  }
+}
+
+@media (max-width: 480px) {
+  .hint-system {
+    padding: 0.75rem;
+  }
+  
+  .hint-button {
+    min-height: 60px;
+    padding: 0.4rem;
+  }
+  
+  .hint-quadrant-icon {
+    font-size: 1rem;
+  }
+  
+  .hint-quadrant-label {
+    font-size: 0.65rem;
+  }
+  
+  .score-multiplier,
+  .projected-score {
+    font-size: 0.85rem;
+  }
+  
+  .penalty-item {
+    font-size: 0.8rem;
+  }
+}

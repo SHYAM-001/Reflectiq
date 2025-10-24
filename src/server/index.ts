@@ -1,7 +1,24 @@
 import express from 'express';
-import { InitResponse, IncrementResponse, DecrementResponse } from '../shared/types/api';
 import { redis, reddit, createServer, context, getServerPort } from '@devvit/web/server';
-import { createPost } from './core/post';
+import { createPost } from './core/post.js';
+import {
+  initializeServices,
+  handleAppInstall,
+  handleCommentCreate,
+  createDailyPuzzlePosts,
+  cleanupExpiredSessions,
+  getGameStatistics,
+} from './core/devvit-integration.js';
+import {
+  startPuzzle,
+  getHint,
+  submitAnswer,
+  getLeaderboard,
+  getPuzzle,
+  getGameStats,
+  initializeGameServices,
+} from './routes/gameRoutes.js';
+import { puzzleFilterRoutes } from './routes/puzzleFilterRoutes.js';
 
 const app = express();
 
@@ -13,6 +30,10 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.text());
 
 const router = express.Router();
+
+// Initialize Logic Reflections game services
+initializeServices();
+initializeGameServices(redis);
 
 router.get<{ postId: string }, InitResponse | { status: string; message: string }>(
   '/api/init',
@@ -91,19 +112,48 @@ router.post<{ postId: string }, DecrementResponse | { status: string; message: s
   }
 );
 
+// Logic Reflections Game API Routes
+router.post('/api/puzzle/start', startPuzzle);
+router.post('/api/puzzle/hint', getHint);
+router.post('/api/puzzle/submit', submitAnswer);
+router.get('/api/leaderboard', getLeaderboard);
+router.get('/api/puzzle/:puzzleId', getPuzzle);
+router.get('/api/stats', getGameStats);
+
+// Puzzle Filter and Navigation Routes
+router.use('/api/puzzles', puzzleFilterRoutes);
+
+// Devvit Integration Routes
 router.post('/internal/on-app-install', async (_req, res): Promise<void> => {
   try {
+    // Handle Logic Reflections app installation
+    await handleAppInstall({}, context);
+
+    // Create original post for compatibility
     const post = await createPost();
 
     res.json({
       status: 'success',
-      message: `Post created in subreddit ${context.subredditName} with id ${post.id}`,
+      message: `Logic Reflections installed and post created in subreddit ${context.subredditName} with id ${post.id}`,
     });
   } catch (error) {
-    console.error(`Error creating post: ${error}`);
+    console.error(`Error during app install: ${error}`);
     res.status(400).json({
       status: 'error',
-      message: 'Failed to create post',
+      message: 'Failed to install Logic Reflections app',
+    });
+  }
+});
+
+router.post('/internal/on-comment-create', async (req, res): Promise<void> => {
+  try {
+    await handleCommentCreate(req.body, context);
+    res.json({ status: 'success' });
+  } catch (error) {
+    console.error(`Error handling comment create: ${error}`);
+    res.status(400).json({
+      status: 'error',
+      message: 'Failed to process comment',
     });
   }
 });
@@ -120,6 +170,40 @@ router.post('/internal/menu/post-create', async (_req, res): Promise<void> => {
     res.status(400).json({
       status: 'error',
       message: 'Failed to create post',
+    });
+  }
+});
+
+router.post('/internal/menu/generate-daily', async (_req, res): Promise<void> => {
+  try {
+    await createDailyPuzzlePosts(context);
+
+    res.json({
+      status: 'success',
+      message: 'Daily puzzles generated successfully',
+    });
+  } catch (error) {
+    console.error(`Error generating daily puzzles: ${error}`);
+    res.status(400).json({
+      status: 'error',
+      message: 'Failed to generate daily puzzles',
+    });
+  }
+});
+
+// Cleanup endpoint for maintenance
+router.post('/internal/cleanup', async (_req, res): Promise<void> => {
+  try {
+    await cleanupExpiredSessions();
+    res.json({
+      status: 'success',
+      message: 'Cleanup completed successfully',
+    });
+  } catch (error) {
+    console.error(`Error during cleanup: ${error}`);
+    res.status(400).json({
+      status: 'error',
+      message: 'Cleanup failed',
     });
   }
 });

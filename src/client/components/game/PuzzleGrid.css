@@ -1,0 +1,362 @@
+/* PuzzleGrid component styles */
+
+.puzzle-grid-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+/* Grid headers */
+.grid-headers {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.column-headers {
+  margin-bottom: 0.5rem;
+}
+
+.header-spacer {
+  width: 40px;
+  height: 30px;
+}
+
+.column-header,
+.row-header {
+  width: 40px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: bold;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+  font-size: 0.9rem;
+}
+
+/* Grid content */
+.puzzle-grid-content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.puzzle-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.puzzle-cells {
+  display: flex;
+  gap: 2px;
+}
+
+/* Individual cells */
+.puzzle-cell {
+  width: 40px;
+  height: 40px;
+  border: 2px solid #ffffff;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: #ffffff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.puzzle-cell:hover {
+  transform: scale(1.05);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+}
+
+.puzzle-cell.hovered {
+  border-color: #ffd700;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.5);
+}
+
+/* Material-specific styling */
+.puzzle-cell.material-mirror {
+  background: linear-gradient(45deg, #c0c0c0, #e8e8e8);
+  border-color: #a0a0a0;
+}
+
+.puzzle-cell.material-water {
+  background: linear-gradient(45deg, #4a90e2, #7bb3f0);
+  border-color: #357abd;
+}
+
+.puzzle-cell.material-glass {
+  background: linear-gradient(45deg, #7ed321, #a8e063);
+  border-color: #6bb71a;
+}
+
+.puzzle-cell.material-metal {
+  background: linear-gradient(45deg, #d0021b, #e63946);
+  border-color: #b8001a;
+}
+
+.puzzle-cell.material-absorber {
+  background: linear-gradient(45deg, #000000, #333333);
+  border-color: #666666;
+}
+
+.puzzle-cell.material-empty {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.3);
+}
+
+/* Laser entry point */
+.puzzle-cell.laser-entry {
+  border-color: #ff6b6b;
+  box-shadow: 0 0 16px rgba(255, 107, 107, 0.6);
+  animation: pulse-entry 2s infinite;
+}
+
+@keyframes pulse-entry {
+  0%, 100% {
+    box-shadow: 0 0 16px rgba(255, 107, 107, 0.6);
+  }
+  50% {
+    box-shadow: 0 0 24px rgba(255, 107, 107, 0.9);
+  }
+}
+
+.laser-entry-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.laser-beam-start {
+  width: 8px;
+  height: 8px;
+  background: #ff6b6b;
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(255, 107, 107, 0.8);
+  animation: beam-pulse 1s infinite;
+}
+
+@keyframes beam-pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.7;
+    transform: scale(1.2);
+  }
+}
+
+/* Material symbols */
+.material-symbol {
+  font-size: 1.2rem;
+  z-index: 2;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+/* Coordinate labels */
+.coordinate-label {
+  position: absolute;
+  bottom: 2px;
+  right: 2px;
+  font-size: 0.6rem;
+  font-weight: bold;
+  color: rgba(0, 0, 0, 0.6);
+  background: rgba(255, 255, 255, 0.8);
+  padding: 1px 3px;
+  border-radius: 2px;
+  line-height: 1;
+}
+
+/* Hint path highlighting */
+.puzzle-cell.hint-path {
+  border-color: #ffd700;
+  background: linear-gradient(45deg, rgba(255, 215, 0, 0.3), rgba(255, 215, 0, 0.1));
+  animation: hint-glow 1.5s infinite;
+}
+
+@keyframes hint-glow {
+  0%, 100% {
+    box-shadow: 0 0 8px rgba(255, 215, 0, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 16px rgba(255, 215, 0, 0.7);
+  }
+}
+
+/* Hint animation */
+.hint-animation {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 3;
+}
+
+.laser-beam-hint {
+  width: 4px;
+  height: 4px;
+  background: #ffd700;
+  border-radius: 50%;
+  box-shadow: 0 0 12px rgba(255, 215, 0, 0.9);
+  animation: hint-beam 2s infinite;
+}
+
+@keyframes hint-beam {
+  0% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.5);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+}
+
+/* Material Legend */
+.material-legend {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  max-width: 400px;
+}
+
+.material-legend h3 {
+  margin: 0 0 0.75rem 0;
+  color: #333;
+  font-size: 1.1rem;
+  text-align: center;
+}
+
+.legend-items {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.02);
+}
+
+.legend-symbol {
+  width: 24px;
+  height: 24px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.9rem;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.legend-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.legend-name {
+  font-weight: 600;
+  color: #333;
+  font-size: 0.9rem;
+}
+
+.legend-description {
+  font-size: 0.8rem;
+  color: #666;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .puzzle-cell {
+    width: 35px;
+    height: 35px;
+  }
+  
+  .column-header,
+  .row-header {
+    width: 35px;
+    height: 25px;
+    font-size: 0.8rem;
+  }
+  
+  .header-spacer {
+    width: 35px;
+    height: 25px;
+  }
+  
+  .material-symbol {
+    font-size: 1rem;
+  }
+  
+  .coordinate-label {
+    font-size: 0.5rem;
+  }
+  
+  .material-legend {
+    max-width: 300px;
+    padding: 0.75rem;
+  }
+  
+  .legend-item {
+    padding: 0.4rem;
+    gap: 0.5rem;
+  }
+  
+  .legend-symbol {
+    width: 20px;
+    height: 20px;
+    font-size: 0.8rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .puzzle-cell {
+    width: 30px;
+    height: 30px;
+  }
+  
+  .column-header,
+  .row-header {
+    width: 30px;
+    height: 22px;
+    font-size: 0.7rem;
+  }
+  
+  .header-spacer {
+    width: 30px;
+    height: 22px;
+  }
+  
+  .material-symbol {
+    font-size: 0.9rem;
+  }
+  
+  .coordinate-label {
+    display: none; /* Hide on very small screens */
+  }
+}

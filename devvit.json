@@ -16,19 +16,28 @@
   "media": {
     "dir": "assets"
   },
+  "permissions": ["redis", "posts", "comments", "users", "moderation"],
   "menu": {
     "items": [
       {
-        "label": "Create a new post",
-        "description": "reflectiq",
+        "label": "Create Logic Reflections Puzzle",
+        "description": "Create a new daily puzzle post",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-create"
+      },
+      {
+        "label": "Generate Daily Puzzles",
+        "description": "Generate today's three difficulty puzzles",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/generate-daily"
       }
     ]
   },
   "triggers": {
-    "onAppInstall": "/internal/on-app-install"
+    "onAppInstall": "/internal/on-app-install",
+    "onCommentCreate": "/internal/on-comment-create"
   },
   "dev": {
     "subreddit": "reflectiq_dev"

@@ -1,0 +1,306 @@
+/* GameTimer component styles */
+
+.game-timer {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  padding: 1.5rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  max-width: 280px;
+  min-width: 240px;
+  transition: all 0.3s ease;
+}
+
+.game-timer--normal {
+  border-left: 4px solid #28a745;
+  color: #28a745;
+}
+
+.game-timer--caution {
+  border-left: 4px solid #ffc107;
+  color: #ffc107;
+}
+
+.game-timer--warning {
+  border-left: 4px solid #fd7e14;
+  color: #fd7e14;
+}
+
+.game-timer--critical {
+  border-left: 4px solid #dc3545;
+  color: #dc3545;
+  animation: timer-pulse 1s infinite;
+}
+
+.game-timer--expired {
+  border-left: 4px solid #6c757d;
+  color: #6c757d;
+  background: rgba(108, 117, 125, 0.1);
+}
+
+@keyframes timer-pulse {
+  0%, 100% {
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  }
+  50% {
+    box-shadow: 0 4px 20px rgba(220, 53, 69, 0.3);
+  }
+}
+
+.timer-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.timer-header h3 {
+  margin: 0;
+  color: #333;
+  font-size: 1.2rem;
+  font-weight: 600;
+}
+
+.timer-status {
+  font-size: 0.9rem;
+  font-weight: 500;
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  background: currentColor;
+  color: white;
+  opacity: 0.9;
+}
+
+/* Timer display */
+.timer-display {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1.5rem;
+}
+
+.time-circle {
+  position: relative;
+  width: 120px;
+  height: 120px;
+}
+
+.timer-svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(0deg);
+}
+
+.timer-progress {
+  transition: stroke-dashoffset 0.1s ease;
+}
+
+.time-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+}
+
+.elapsed-time {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: #333;
+  line-height: 1;
+  margin-bottom: 0.25rem;
+}
+
+.remaining-time {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: #666;
+  line-height: 1;
+}
+
+/* Timer stats */
+.timer-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem;
+  background: #f8f9fa;
+  border-radius: 6px;
+}
+
+.stat-label {
+  font-size: 0.9rem;
+  color: #666;
+  font-weight: 500;
+}
+
+.stat-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #333;
+}
+
+/* Time bonus section */
+.time-bonus-section {
+  background: #e8f5e8;
+  border: 1px solid #c3e6cb;
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.bonus-header {
+  margin-bottom: 0.75rem;
+}
+
+.bonus-header h4 {
+  margin: 0;
+  font-size: 1rem;
+  color: #155724;
+}
+
+.bonus-stats {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+
+.bonus-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.bonus-label {
+  font-size: 0.85rem;
+  color: #155724;
+  font-weight: 500;
+}
+
+.bonus-value {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.bonus-value.good {
+  color: #28a745;
+}
+
+.bonus-value.poor {
+  color: #dc3545;
+}
+
+.bonus-bar {
+  width: 100%;
+  height: 8px;
+  background: #d4edda;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.bonus-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #dc3545 0%, #ffc107 50%, #28a745 100%);
+  transition: width 0.3s ease;
+  border-radius: 4px;
+}
+
+/* Timer expired message */
+.timer-expired-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 1rem;
+  background: #f8d7da;
+  border: 1px solid #f5c6cb;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.expired-icon {
+  font-size: 2rem;
+  line-height: 1;
+}
+
+.expired-text {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #721c24;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  .game-timer {
+    max-width: 100%;
+    min-width: auto;
+    padding: 1rem;
+  }
+  
+  .time-circle {
+    width: 100px;
+    height: 100px;
+  }
+  
+  .elapsed-time {
+    font-size: 1.2rem;
+  }
+  
+  .remaining-time {
+    font-size: 0.8rem;
+  }
+  
+  .timer-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  
+  .timer-status {
+    align-self: flex-end;
+  }
+}
+
+@media (max-width: 480px) {
+  .game-timer {
+    padding: 0.75rem;
+  }
+  
+  .time-circle {
+    width: 80px;
+    height: 80px;
+  }
+  
+  .elapsed-time {
+    font-size: 1rem;
+  }
+  
+  .remaining-time {
+    font-size: 0.7rem;
+  }
+  
+  .stat-item,
+  .bonus-item {
+    font-size: 0.8rem;
+  }
+  
+  .timer-expired-message {
+    padding: 0.75rem;
+  }
+  
+  .expired-icon {
+    font-size: 1.5rem;
+  }
+  
+  .expired-text {
+    font-size: 1rem;
+  }
+}
