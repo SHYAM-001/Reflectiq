@@ -1,14 +1,39 @@
-# ReflectiQ - Ultimate Laser Puzzle Game
+# ReflectiQ - Strategic Laser Puzzle Game
 
-A sophisticated laser reflection puzzle game built for Reddit using the Devvit platform. Challenge your spatial reasoning and physics intuition by tracing laser beams through complex grids filled with reflective materials.
+An innovative laser reflection puzzle game built for Reddit using the Devvit platform. ReflectiQ challenges players to trace invisible laser beams through hidden grids filled with mirrors, glass, water, and other materials using strategic hint management and physics-based deduction.
 
 ## What is ReflectiQ?
 
-ReflectiQ is an innovative grid-based puzzle game where players must predict the path of a laser beam as it travels through a grid containing various reflective materials. The game presents you with a grid maze where a red laser beam enters at a marked entry point and you must determine where it will exit after interacting with different materials.
+ReflectiQ is a revolutionary grid-based puzzle game that combines physics simulation with strategic information management. Players must predict where a laser beam will exit after bouncing through a completely hidden grid containing various reflective and refractive materials. The game's core innovation is its **progressive revelation system** - you start with a blank grid and must strategically use exactly 4 hints to reveal quarter-sections, balancing information gathering with solving speed.
 
-The core gameplay revolves around physics-based laser simulation where players analyze how light behaves when it encounters different materials like mirrors, glass, water, metal barriers, and absorbers. Each material has unique properties that affect the laser's path - mirrors reflect at precise angles, water refracts the beam, glass allows partial transmission, metal blocks completely, and absorbers terminate the laser entirely.
+### The Ultimate Deduction Challenge
 
-**What makes this game truly innovative is its strategic hint system**: Instead of seeing all materials at once, players start with a completely hidden grid and can strategically use up to 4 hints to reveal quarter sections of the puzzle. This creates a unique blend of deduction, resource management, and physics reasoning that sets ReflectiQ apart from traditional puzzle games.
+Unlike traditional puzzle games, ReflectiQ presents players with a **completely hidden grid** at the start. You can only see:
+
+- The laser entry point (pulsing red dot)
+- Grid coordinates (A1, B2, C3, etc.)
+- A timer counting your solving time
+
+Your mission: Determine where the laser exits using strategic hint usage and physics-based reasoning.
+
+### Core Gameplay Mechanics
+
+**🔬 Advanced Physics Simulation**: ReflectiQ features authentic laser behavior with 5 distinct material types, each affecting the beam differently:
+
+- **🪞 Mirrors**: Reflect laser at precise angles (45°, 90°, 135°, 120°, 60°) with visual line indicators showing exact orientation
+- **💧 Water**: Refracts the beam through realistic physics, subtly changing direction with distinctive blue coloring
+- **🔍 Glass**: Allows partial transmission while creating complex reflection patterns with transparency effects
+- **🔩 Metal**: Acts as an impenetrable barrier that completely blocks and stops the laser beam
+- **⚫ Absorber**: Specialized material that terminates the laser entirely (meaning no exit point exists for that puzzle)
+
+**🧠 Revolutionary 4-Hint Strategic System**: The game's signature innovation is its progressive revelation mechanic:
+
+- **Complete Information Blackout**: Start with a totally hidden grid - only the laser entry point and coordinates are visible
+- **Strategic Quadrant Reveals**: Use exactly 4 hints to reveal quarter-sections in sequence: top-left → top-right → bottom-left → bottom-right
+- **Resource Management Challenge**: Each hint is precious - plan which sections to reveal based on laser entry point and likely path
+- **Progressive Discovery**: Watch materials appear as you reveal quadrants, showing mirrors, glass, water, metal, and absorbers in their exact positions
+- **Full Laser Visualization**: After using all 4 hints, witness the complete animated laser path with glowing red dashed beam trace
+- **Time vs. Information Balance**: Faster solving earns higher scores, but insufficient information leads to wrong answers
 
 ### Current Game State
 
@@ -80,105 +105,112 @@ The goal is elegantly simple yet intellectually challenging: determine where the
 
 ## What Makes ReflectiQ Innovative?
 
-### 🧠 **Revolutionary Hidden Grid + Strategic Hint System**
+### 🧠 **Revolutionary Hidden Grid + Strategic Information Management**
 
-The game's most innovative feature is its **progressive revelation mechanic** implemented through sophisticated React state management:
+ReflectiQ's breakthrough innovation is its **complete information blackout system** combined with strategic revelation mechanics:
 
-- **Hidden Grid Start**: Players begin with a completely blank grid - no materials visible except the laser entry point (marked with a pulsing red dot using CSS animations)
-- **Strategic 4-Hint System**: Use up to 4 hints to reveal quarter sections of the grid in sequence (top-left, top-right, bottom-left, bottom-right) managed through `revealedQuadrants` state array
-- **Resource Management**: Limited hints force strategic thinking about when and where to reveal information, tracked via `hintsUsed` state counter
-- **Progressive Discovery**: Each hint reveals material placement and laser interactions in a specific quadrant with pulse animations using CSS `animate-pulse` class
-- **Complete Laser Visualization**: After using all 4 hints (`showLaser={hintsUsed === 4}`), witness the full animated laser path with glowing red dashed SVG beam trace and drop shadows
-- **Risk vs. Reward**: Balance between using hints for information and maintaining a competitive solving time tracked by the Timer component
+- **Total Grid Concealment**: Unlike any other puzzle game, you start with absolutely no information about material placement - just a laser entry point and grid coordinates
+- **4-Hint Strategic Framework**: Exactly 4 hints available to reveal quarter-sections, forcing critical decisions about information gathering
+- **Quadrant-Based Intelligence**: Each hint reveals one quarter of the grid (top-left → top-right → bottom-left → bottom-right) with all materials in that section
+- **Resource Scarcity**: Limited hints create intense strategic pressure - every reveal must be carefully planned
+- **Progressive Physics Discovery**: Watch laser interactions unfold as you reveal mirrors, glass, water, metal, and absorbers in sequence
+- **Complete Path Revelation**: After using all 4 hints, see the full animated laser beam with glowing red dashed trace showing exact bounces and reflections
+- **Speed vs. Knowledge Dilemma**: Balance thorough investigation against competitive solving time for optimal scoring
 
-### 🎯 **Physics-Based Puzzle Mechanics**
+### 🎯 **Authentic Physics-Based Laser Simulation**
 
-- **Realistic Laser Physics**: Authentic simulation of laser beam behavior with multiple material interactions
-- **Precise Reflection Angles**: Mirrors reflect at exact angles (45°, 90°, 135°, 120°, 60°) with visual line indicators showing orientation
-- **Complex Multi-Bounce Paths**: Laser beams can bounce multiple times through intricate material arrangements
-- **5 Distinct Material Types**: Each material affects laser behavior differently:
-  - **🪞 Mirrors**: Perfect reflection at calculated angles with visual line indicators showing precise orientation
-  - **💧 Water**: Beam refraction causing directional changes with distinct blue material coloring
-  - **🔍 Glass**: Partial transmission with transparency effects and unique styling
-  - **🔩 Metal**: Complete beam blocking barriers with metallic visual treatment
-  - **⚫ Absorbers**: Specialized materials that terminate the laser entirely with dark visual representation
+- **Realistic Beam Behavior**: Scientifically accurate laser physics with authentic reflection, refraction, and absorption mechanics
+- **Precision Angle System**: Mirrors reflect at exact calculated angles (45°, 90°, 135°, 120°, 60°) with visual line indicators showing precise orientation
+- **Complex Multi-Bounce Sequences**: Laser beams can bounce through intricate chains of mirrors, creating elaborate paths across the entire grid
+- **5 Scientifically Distinct Materials**: Each material type follows real physics principles:
+  - **🪞 Mirrors**: Perfect specular reflection at calculated angles with visual orientation lines showing exact beam direction changes
+  - **💧 Water**: Realistic refraction mechanics causing subtle directional shifts with distinctive blue material coloring
+  - **🔍 Glass**: Partial transmission allowing some beam continuation while creating secondary reflections with transparency effects
+  - **🔩 Metal**: Complete photon absorption acting as impenetrable barriers that terminate laser paths with metallic visual treatment
+  - **⚫ Absorbers**: Specialized beam termination materials that end laser paths entirely (indicating puzzles with no exit solution)
 
 ### 🎮 **Seamless Reddit Integration & Modern Web Architecture**
 
 - **Native Devvit Framework**: Built specifically for Reddit's interactive post system using React 18+ and TypeScript
-- **In-Post Gameplay**: Play directly within Reddit posts without external navigation through the main App component
-- **Grid Coordinate Submission**: Submit answers using chess-like notation (A1, B5, H8, etc.) via the "Submit Exit Cell" button with Send icon from Lucide React
-- **Real-Time Timer**: Precise MM:SS format timer component with clock icon, useEffect-based interval management, and automatic start/stop functionality
-- **Toast Notifications**: Instant feedback using Sonner toast library for hint usage, submissions, and game events with customizable duration
-- **Smooth Navigation**: Seamless transitions between StartScreen and PuzzleScreen components with proper React state management and React Router integration
+- **In-Post Gameplay**: Play directly within Reddit posts without external navigation
+- **Grid Coordinate Submission**: Submit answers using chess-like notation (A1, B5, H8, etc.)
+- **Real-Time Timer**: Precise MM:SS format timer with automatic start/stop functionality
+- **Toast Notifications**: Instant feedback for hint usage, submissions, and game events
+- **Smooth Navigation**: Seamless transitions between game screens with proper state management
 
-### 🏆 **Immersive Visual Experience Built with Modern CSS**
+### 🏆 **Immersive Visual Experience**
 
-- **Futuristic Design System**: Dark gradient backgrounds using CSS custom properties with electric blue (hsl(211 100% 50%)) and laser red (hsl(348 100% 59%)) accent colors defined in index.css
-- **Animated Particle System**: 20 floating background particles generated via JavaScript array mapping with random positioning and CSS pulse effects create an immersive sci-fi atmosphere
-- **Interactive Grid Elements**: Hover tooltips using absolute positioning and backdrop-blur reveal material types and properties when quadrants are revealed through the `isRevealed` function
-- **Glowing Visual Effects**: Laser entry points (pulsing red dots with ring indicators), UI elements, and beam paths feature dynamic glow effects using CSS custom shadow properties
-- **Responsive Animations**: Smooth hover effects with `hover:scale-105`, scaling buttons, pulse effects using `animate-pulse`, and shimmer gradients on the title with `animate-shimmer`
-- **Mobile-Optimized**: Touch-friendly interface using Tailwind CSS responsive classes that adapts perfectly to all screen sizes with CSS Grid layout and `useIsMobile` hook
+- **Futuristic Design System**: Dark gradient backgrounds with electric blue and laser red accent colors
+- **Animated Particle System**: 20 floating background particles create an immersive sci-fi atmosphere
+- **Interactive Grid Elements**: Hover tooltips reveal material types and properties when quadrants are revealed
+- **Glowing Visual Effects**: Laser entry points, UI elements, and beam paths feature dynamic glow effects
+- **Responsive Animations**: Smooth hover effects, scaling buttons, pulse effects, and shimmer gradients
+- **Mobile-Optimized**: Touch-friendly interface that adapts perfectly to all screen sizes
 
 ## How to Play ReflectiQ
 
-### Step 1: Launch the Game
+### Step 1: Enter the Laser Laboratory
 
-1. **Access the Start Screen**: The game opens with the StartScreen component featuring an immersive animated interface:
+1. **Immersive Start Experience**: ReflectiQ opens with a futuristic interface designed to feel like entering a high-tech laser laboratory:
 
-   - Floating particle background (20 animated particles generated via `Array(20).map()` with random positioning and CSS pulse effects)
-   - Large gradient shimmer title "ReflectiQ" using Montserrat font with `bg-gradient-primary bg-clip-text` and `animate-shimmer` effects
-   - Subtitle: "Trace the light. Decode the reflections." in Poppins font
-   - Two main action buttons: "Start to Solve" (primary CTA with Play icon from Lucide React) and "Leaderboard" (Link component with Trophy icon)
+   - **Animated Particle Field**: 20 floating particles create a dynamic sci-fi atmosphere with randomized positioning and pulse animations
+   - **Gradient Shimmer Title**: "ReflectiQ" displays with electric blue gradient effects and animated shimmer using Montserrat typography
+   - **Mission Statement**: "Trace the light. Decode the reflections." sets the physics-based challenge tone
+   - **Primary Action**: Large "Start to Solve" button with Play icon launches directly into puzzle-solving mode
 
-2. **Optional Tutorial**: Click "How to Play" to expand the collapsible guide (`showGuide` state) showing:
+2. **Learn the Physics** (Optional Tutorial): Click "How to Play" to reveal the expandable 3-step guide:
 
-   - **Step 1**: Watch the laser enter at the marked entry point
-   - **Step 2**: Use hints to visualize quarter sections and see laser reflections
-   - **Step 3**: Guess the exit cell and submit in format "Exit: D5"
-   - Guide uses card styling with `bg-card/50 backdrop-blur-sm` and structured layout with numbered steps
+   - **Step 1**: "Watch the laser enter" - Understand that the red laser beam enters at a marked grid coordinate
+   - **Step 2**: "Use hints to visualize" - Learn how clicking hints reveals quarter sections showing material placement and laser interactions
+   - **Step 3**: "Guess the exit cell" - Submit your final answer using grid coordinates like "Exit: D5"
 
-3. **Enter the Puzzle**: Click "Start to Solve" to trigger `onStart()` callback and transition to PuzzleScreen component
+3. **Enter Puzzle Mode**: Click "Start to Solve" to transition into the main game interface with:
 
-   - Timer component automatically starts counting (`isRunning={true}`) in MM:SS format using Orbitron font
-   - PuzzleGrid component renders showing only the laser entry point (pulsing red dot with `animate-glow-pulse`)
+   - **Real-Time Timer**: Automatic MM:SS countdown in Orbitron font with Clock icon, tracking your solving speed for leaderboard scoring
+   - **Hidden Grid Challenge**: Complete grid concealment except for the pulsing red laser entry point and coordinate labels (A1, B2, C3...)
+   - **Strategic Interface**: Clean layout with timer (top-left), hint button (top-right), grid (center), and action buttons (bottom)
 
-4. **Game Interface Layout** (PuzzleScreen component structure):
-   - **Top-left**: Timer component with Clock icon from Lucide React in a card with `bg-card/80 backdrop-blur-sm`
-   - **Top-right**: HintButton component displaying "Hint 4/4" with Lightbulb icon and gradient styling
-   - **Center**: PuzzleGrid component with coordinate labels (A1, B2, C3, etc.) generated by `getCellPosition()` function
-   - **Bottom**: "Back to Start" and "Submit Exit Cell" buttons with Send icon, managed by `handleSubmit()` function
+4. **Master the Interface**: The PuzzleScreen provides everything needed for strategic puzzle-solving:
+   - **Timer Display**: Real-time MM:SS format with glowing red laser-themed styling
+   - **Hint Counter**: "Hint 4/4" button with Lightbulb icon showing remaining reveals
+   - **Grid Coordinates**: Chess-like notation (A1-J10) in each cell corner for precise answer submission
+   - **Action Controls**: "Back to Start" and "Submit Exit Cell" buttons for navigation and answer submission
 
-### Step 2: Understand the Hidden Grid Challenge
+### Step 2: Master the Information Blackout Challenge
 
-**The Core Innovation**: ReflectiQ starts with a completely hidden grid implemented through the `isRevealed()` function - this is what makes it unique!
+**The Revolutionary Concept**: ReflectiQ's signature innovation is complete grid concealment - you start with zero information about material placement!
 
-**Initial State** (managed by React state):
+**What You See Initially**:
 
-- **Hidden Materials**: All mirrors, glass, water, metal, and absorbers are invisible initially (not rendered until revealed)
-- **Visible Elements**: Only the laser entry point (red pulsing dot with ring indicator using `isEntry` prop) and grid coordinates generated by `getCellPosition()` are shown
-- **Strategic Challenge**: You must deduce the laser path without seeing the materials first, creating a deduction puzzle
+- **Laser Entry Point**: Pulsing red dot with ring indicator showing where the beam enters the grid
+- **Grid Coordinates**: Clear A1-J10 labeling system in each cell corner for navigation and answer submission
+- **Empty Grid**: All materials (mirrors, glass, water, metal, absorbers) are completely invisible until revealed
+- **Interface Elements**: Timer, hint counter, and action buttons - but no puzzle information
 
-**The 4-Hint Revelation System** (implemented via `revealedQuadrants` state array):
+**The Strategic 4-Hint System**:
+ReflectiQ provides exactly 4 hints to reveal information, creating intense strategic pressure:
 
-- **Limited Resources**: You have exactly 4 hints tracked by `hintsUsed` state counter to strategically reveal information
-- **Quadrant-Based**: Each hint reveals one quarter of the grid calculated by the `isRevealed()` function:
-  1. **Hint 1**: Top-left quadrant (`row < midRow && col < midCol`) - index 0 in `revealedQuadrants`
-  2. **Hint 2**: Top-right quadrant (`row < midRow && col >= midCol`) - index 1 in `revealedQuadrants`
-  3. **Hint 3**: Bottom-left quadrant (`row >= midRow && col < midCol`) - index 2 in `revealedQuadrants`
-  4. **Hint 4**: Bottom-right quadrant (`row >= midRow && col >= midCol`) - index 3 in `revealedQuadrants`
-- **Progressive Discovery**: Plan which sections to reveal based on the laser entry point and likely path using strategic thinking
-- **Resource Management**: Balance information gathering with maintaining a competitive solving time tracked by Timer component
+1. **Hint 1**: Reveals **top-left quadrant** - Shows all materials in the upper-left quarter of the grid
+2. **Hint 2**: Reveals **top-right quadrant** - Exposes materials in the upper-right section
+3. **Hint 3**: Reveals **bottom-left quadrant** - Uncovers materials in the lower-left area
+4. **Hint 4**: Reveals **bottom-right quadrant** - Shows final quarter plus **animated laser beam visualization**
 
-**Material Types** (revealed when you use hints, rendered by GridCell component):
+**Material Discovery System**:
+When you reveal quadrants, materials appear with distinct visual styling:
 
-- **🪞 Mirrors**: Reflect laser at precise angles (45°, 90°, 135°, 120°, 60°) with visual line indicators created by `getMaterialIcon()` function showing orientation via CSS transform rotation
-- **💧 Water**: Refracts the beam, subtly changing its direction with blue material coloring using `bg-material-water` CSS class
-- **🔍 Glass**: Allows partial transmission with transparency effects and unique styling using `bg-material-glass` CSS class
-- **🔩 Metal**: Completely blocks the laser beam with metallic visual treatment using `bg-material-metal` CSS class
-- **⚫ Absorber**: Terminates the laser entirely (meaning no exit point exists) with dark representation using `bg-material-absorber` CSS class
-- **⬜ Empty Cells**: Laser travels straight through without any interaction, styled with `bg-card/20 backdrop-blur-sm` for subtle transparency
+- **🪞 Mirrors**: Show precise angle indicators (45°, 90°, 135°, 120°, 60°) with visual line overlays indicating exact reflection direction
+- **💧 Water**: Displays with blue coloring and refraction properties that subtly alter laser direction
+- **🔍 Glass**: Appears with transparency effects showing partial transmission and reflection capabilities
+- **🔩 Metal**: Shows metallic styling indicating complete laser beam blocking and path termination
+- **⚫ Absorber**: Displays with dark coloring indicating laser beam absorption (no exit point exists)
+- **⬜ Empty Cells**: Remain transparent, allowing laser to pass straight through without interaction
+
+**Strategic Information Management**:
+
+- **Resource Scarcity**: Only 4 hints available - every reveal must be strategically planned
+- **Progressive Discovery**: Each hint permanently reveals a quarter-section with all materials in that area
+- **Time Pressure**: Timer runs continuously, creating tension between information gathering and solving speed
+- **Risk Assessment**: Balance thorough investigation against competitive completion time for optimal scoring
 
 ### Step 3: Strategic Hint Usage
 
@@ -539,13 +571,13 @@ The game is built with a modern tech stack optimized for Reddit's Devvit platfor
 ReflectiQ is a **fully functional laser puzzle game** with sophisticated React architecture and complete gameplay mechanics. The game features:
 
 - ✅ **Complete Game Flow**: Start screen → Puzzle interface → Timer → Hint system → Submission
-- ✅ **Advanced Physics System**: 5 material types with distinct laser interactions and visual representations
+- ✅ **Advanced Physics System**: 5 material types with distinct laser interactions
 - ✅ **Strategic Hint Mechanics**: 4-hint quadrant revelation system with progressive discovery
 - ✅ **Immersive Visual Design**: Particle animations, gradient effects, and futuristic styling
-- ✅ **Comprehensive Leaderboard**: Performance tracking with rankings, stats, and difficulty badges
-- ✅ **Three Difficulty Levels**: Easy (6x6), Medium (8x8), and Hard (10x10) with pre-designed puzzles
+- ✅ **Comprehensive Leaderboard**: Performance tracking with rankings and stats
+- ✅ **Three Difficulty Levels**: Easy (6x6), Medium (8x8), and Hard (10x10) puzzles
 
-The core game is **ready to play** with minor import path fixes needed for full deployment. All major components are implemented and functional.
+The core game is **ready to play** and all major components are implemented and functional.
 
 ---
 

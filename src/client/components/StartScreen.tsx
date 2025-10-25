@@ -1,7 +1,6 @@
 import { Button } from "../components/ui/button";
 import { ChevronDown, Play, Trophy } from "lucide-react";
 import { useState } from "react";
-import { Link } from "react-router-dom";
 
 interface StartScreenProps {
   onStart: () => void;
@@ -49,17 +48,6 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
             <Play className="mr-2 h-5 w-5" />
             Start to Solve
           </Button>
-          
-          <Link to="/leaderboard">
-            <Button
-              size="lg"
-              variant="outline"
-              className="w-full sm:w-auto border-primary/30 hover:border-primary hover:bg-primary/10 font-poppins font-bold text-lg px-8 py-6 rounded-xl transition-all duration-300 hover:scale-105"
-            >
-              <Trophy className="mr-2 h-5 w-5" />
-              Leaderboard
-            </Button>
-          </Link>
         </div>
 
         {/* How to Play */}

@@ -1,7 +1,7 @@
-import { useState } from "react";
-import { StartScreen } from "../components/StartScreen";
-import { PuzzleScreen } from "../components/puzzle/PuzzleScreen";
-import { samplePuzzle } from "../data/samplePuzzles";
+import { useState } from 'react';
+import { StartScreen } from '../components/StartScreen';
+import { PuzzleScreen } from '../components/puzzle/PuzzleScreen';
+import { samplePuzzle } from '../data/samplePuzzles';
 
 const Index = () => {
   const [gameStarted, setGameStarted] = useState(false);
@@ -11,10 +11,7 @@ const Index = () => {
       {!gameStarted ? (
         <StartScreen onStart={() => setGameStarted(true)} />
       ) : (
-        <PuzzleScreen
-          puzzleData={samplePuzzle}
-          onBack={() => setGameStarted(false)}
-        />
+        <PuzzleScreen puzzleData={samplePuzzle} onBack={() => setGameStarted(false)} />
       )}
     </>
   );
