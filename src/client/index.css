@@ -1,1 +1,78 @@
-@import 'tailwindcss';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
+@layer base {
+  :root {
+    /* ReflectiQ Color Palette */
+    --background: 217 71% 8%;
+    --foreground: 210 40% 98%;
+
+    --card: 217 71% 12%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 217 71% 12%;
+    --popover-foreground: 210 40% 98%;
+
+    /* Primary Blue Gradient */
+    --primary: 211 100% 50%;
+    --primary-light: 195 100% 50%;
+    --primary-foreground: 210 40% 98%;
+
+    /* Laser Red Accent */
+    --laser: 348 100% 59%;
+    --laser-glow: 348 100% 70%;
+
+    /* Secondary */
+    --secondary: 217 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    /* Muted */
+    --muted: 217 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    /* Accent */
+    --accent: 217 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    /* Material Colors */
+    --mirror: 0 0% 75%;
+    --glass: 150 60% 50%;
+    --water: 200 80% 60%;
+    --metal: 0 70% 50%;
+    --absorber: 0 0% 10%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217 32.6% 25%;
+    --input: 217 32.6% 17.5%;
+    --ring: 211 100% 50%;
+
+    --radius: 0.75rem;
+
+    /* Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-light)));
+    --gradient-bg: linear-gradient(180deg, hsl(217 71% 8%), hsl(217 61% 13%));
+    --gradient-laser: linear-gradient(90deg, hsl(var(--laser)), hsl(var(--laser-glow)));
+    
+    /* Shadows & Glows */
+    --glow-primary: 0 0 20px hsl(var(--primary) / 0.5);
+    --glow-laser: 0 0 30px hsl(var(--laser) / 0.6);
+    --shadow-elevated: 0 10px 40px hsl(217 71% 5% / 0.5);
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+  }
+}

@@ -1,37 +1,20 @@
-import { useEffect, useState } from 'react';
-import { LogicReflectionsGame } from './components/LogicReflectionsGame.js';
-import './components/LogicReflectionsGame.css';
+import { Toaster } from "./components/ui/toaster";
+import { Toaster as Sonner } from "./components/ui/sonner";
+import { TooltipProvider } from "./components/ui/tooltip";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-export const App = () => {
-  const [username, setUsername] = useState<string>('');
-  const [loading, setLoading] = useState(true);
+import Index from "./pages/Index";
 
-  useEffect(() => {
-    // Initialize the app and get user info
-    const initializeApp = async () => {
-      try {
-        const response = await fetch('/api/init');
-        if (response.ok) {
-          const data = await response.json();
-          setUsername(data.username || '');
-        }
-      } catch (error) {
-        console.error('Failed to initialize app:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+const queryClient = new QueryClient();
 
-    void initializeApp();
-  }, []);
+const App = () => (
+  <QueryClientProvider client={queryClient}>
+    <TooltipProvider>
+      <Toaster />
+      <Sonner />
+      <Index/>
+    </TooltipProvider>
+  </QueryClientProvider>
+);
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-500 to-purple-600">
-        <div className="text-white text-xl">Loading Logic Reflections...</div>
-      </div>
-    );
-  }
-
-  return <LogicReflectionsGame username={username} />;
-};
+export default App;
