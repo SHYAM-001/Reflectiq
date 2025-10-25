@@ -6,22 +6,32 @@ export const createPost = async () => {
     throw new Error('subredditName is required');
   }
 
+  // Ensure subredditName is properly typed as string
+  const validSubredditName: string = subredditName;
+
+  const today = new Date().toISOString().split('T')[0];
+  const formattedDate = new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
   return await reddit.submitCustomPost({
+    subredditName: validSubredditName,
+    title: `🔴 Daily ReflectIQ Puzzle - ${today} | Laser Reflection Challenge`,
     splash: {
-      // Splash Screen Configuration
-      appDisplayName: 'reflectiq',
-      backgroundUri: 'default-splash.png',
-      buttonLabel: 'Tap to Start',
-      description: 'An exciting interactive experience',
-      entryUri: 'index.html',
-      heading: 'Welcome to the Game!',
-      appIconUri: 'default-icon.png',
+      appDisplayName: 'ReflectIQ',
+      backgroundUri: 'RQ-background.png',
+      buttonLabel: 'Start Puzzle',
+      description: `${formattedDate}'s laser reflection challenge! Trace the beam through mirrors and materials to find the exit.`,
+      heading: `Daily ReflectIQ Puzzle`,
+      appIconUri: 'RQ-icon.png',
     },
     postData: {
-      gameState: 'initial',
-      score: 0,
+      puzzleDate: today as string,
+      gameType: 'daily-puzzle',
+      status: 'active',
     },
-    subredditName: subredditName,
-    title: 'reflectiq',
   });
 };

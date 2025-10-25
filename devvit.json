@@ -5,7 +5,8 @@
     "dir": "dist/client",
     "entrypoints": {
       "default": {
-        "entry": "index.html"
+        "entry": "index.html",
+        "height": "tall"
       }
     }
   },
@@ -16,18 +17,49 @@
   "media": {
     "dir": "assets"
   },
+  "permissions": {
+    "redis": true,
+    "reddit": {
+      "enable": true,
+      "asUser": ["SUBMIT_POST", "SUBMIT_COMMENT"]
+    }
+  },
+  "scheduler": {
+    "tasks": {
+      "daily-puzzle-generation": {
+        "endpoint": "/internal/scheduler/generate-puzzles",
+        "cron": "0 0 * * *"
+      },
+      "daily-leaderboard-post": {
+        "endpoint": "/internal/scheduler/post-leaderboard",
+        "cron": "0 1 * * *"
+      }
+    }
+  },
   "menu": {
     "items": [
       {
-        "label": "Create a new post",
-        "description": "Mirror Maze Game",
+        "label": "Create ReflectIQ Puzzle",
+        "description": "Create a new daily puzzle post",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-create"
+      },
+      {
+        "label": "View Leaderboard",
+        "description": "View current puzzle leaderboards",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/leaderboard"
       }
     ]
   },
   "triggers": {
-    "onAppInstall": "/internal/on-app-install"
+    "onAppInstall": "/internal/on-app-install",
+    "onPostSubmit": "/internal/triggers/post-submit",
+    "onCommentSubmit": "/internal/triggers/comment-submit"
+  },
+  "marketingAssets": {
+    "icon": "assets/RQ-icon.png"
   }
 }

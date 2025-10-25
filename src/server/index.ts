@@ -124,6 +124,90 @@ router.post('/internal/menu/post-create', async (_req, res): Promise<void> => {
   }
 });
 
+router.post('/internal/menu/leaderboard', async (_req, res): Promise<void> => {
+  try {
+    // TODO: Implement leaderboard view logic
+    res.json({
+      status: 'success',
+      message: 'Leaderboard functionality coming soon',
+    });
+  } catch (error) {
+    console.error(`Error accessing leaderboard: ${error}`);
+    res.status(400).json({
+      status: 'error',
+      message: 'Failed to access leaderboard',
+    });
+  }
+});
+
+// Scheduler endpoints
+router.post('/internal/scheduler/generate-puzzles', async (_req, res): Promise<void> => {
+  try {
+    console.log(`Daily puzzle generation triggered at ${new Date().toISOString()}`);
+    // TODO: Implement daily puzzle generation logic
+    res.json({
+      status: 'success',
+      message: 'Daily puzzles generated successfully',
+    });
+  } catch (error) {
+    console.error(`Error generating daily puzzles: ${error}`);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to generate daily puzzles',
+    });
+  }
+});
+
+router.post('/internal/scheduler/post-leaderboard', async (_req, res): Promise<void> => {
+  try {
+    console.log(`Daily leaderboard posting triggered at ${new Date().toISOString()}`);
+    // TODO: Implement leaderboard posting logic
+    res.json({
+      status: 'success',
+      message: 'Daily leaderboard posted successfully',
+    });
+  } catch (error) {
+    console.error(`Error posting daily leaderboard: ${error}`);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to post daily leaderboard',
+    });
+  }
+});
+
+// Trigger endpoints
+router.post('/internal/triggers/post-submit', async (_req, res): Promise<void> => {
+  try {
+    // TODO: Handle post submission events
+    res.json({
+      status: 'success',
+      message: 'Post submission processed',
+    });
+  } catch (error) {
+    console.error(`Error processing post submission: ${error}`);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to process post submission',
+    });
+  }
+});
+
+router.post('/internal/triggers/comment-submit', async (_req, res): Promise<void> => {
+  try {
+    // TODO: Handle comment submission events (puzzle answers)
+    res.json({
+      status: 'success',
+      message: 'Comment submission processed',
+    });
+  } catch (error) {
+    console.error(`Error processing comment submission: ${error}`);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to process comment submission',
+    });
+  }
+});
+
 // Use router middleware
 app.use(router);
 
