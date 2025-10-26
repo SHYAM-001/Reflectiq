@@ -48,30 +48,31 @@
     - Add puzzle complexity verification for difficulty levels
     - _Requirements: 1.8, 2.6_
 
-- [ ] 4. Implement server-side API endpoints
+- [x] 4. Implement server-side API endpoints
 
-  - [ ] 4.1 Create puzzle retrieval endpoints
+  - [x] 4.1 Create puzzle retrieval endpoints
 
     - Implement GET /api/puzzle/current with difficulty parameter
     - Add puzzle data serialization and Redis caching
     - Handle puzzle not found and error scenarios
     - _Requirements: 11.1, 9.1, 9.2_
 
-  - [ ] 4.2 Build session management endpoints
+  - [x] 4.2 Build session management endpoints
 
     - Implement POST /api/puzzle/start for timer initialization
     - Create session tracking with Redis storage
     - Add session validation and cleanup mechanisms
     - _Requirements: 11.2, 4.1, 4.4, 9.2_
 
-  - [ ] 4.3 Develop hint system endpoints
+  - [x] 4.3 Develop hint system endpoints
 
     - Implement POST /api/puzzle/hint with progressive revelation
     - Create hint path precomputation during puzzle generation
     - Add hint usage tracking and score penalty calculation
     - _Requirements: 11.3, 3.1, 3.2, 3.4, 3.5_
 
-  - [ ] 4.4 Create submission and scoring endpoints
+  - [x] 4.4 Create submission and scoring endpoints
+
     - Implement POST /api/puzzle/submit with answer validation
     - Add comprehensive scoring calculation with time and hint penalties
     - Create leaderboard update logic using Redis sorted sets

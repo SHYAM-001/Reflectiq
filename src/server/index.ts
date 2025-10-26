@@ -2,6 +2,8 @@ import express from 'express';
 import { InitResponse, IncrementResponse, DecrementResponse } from '../shared/types/api';
 import { redis, reddit, createServer, context, getServerPort } from '@devvit/web/server';
 import { createPost } from './core/post';
+import { PuzzleService } from './services/PuzzleService.js';
+import puzzleRoutes from './routes/puzzleRoutes.js';
 
 const app = express();
 
@@ -91,6 +93,9 @@ router.post<{ postId: string }, DecrementResponse | { status: string; message: s
   }
 );
 
+// API Routes
+router.use('/api/puzzle', puzzleRoutes);
+
 router.post('/internal/on-app-install', async (_req, res): Promise<void> => {
   try {
     const post = await createPost();
@@ -144,16 +149,39 @@ router.post('/internal/menu/leaderboard', async (_req, res): Promise<void> => {
 router.post('/internal/scheduler/generate-puzzles', async (_req, res): Promise<void> => {
   try {
     console.log(`Daily puzzle generation triggered at ${new Date().toISOString()}`);
-    // TODO: Implement daily puzzle generation logic
+
+    const today = new Date().toISOString().split('T')[0] as string;
+    const puzzleService = PuzzleService.getInstance();
+
+    // Check if puzzles already exist for today
+    const puzzlesExist = await puzzleService.puzzlesExistForDate(today);
+
+    if (puzzlesExist) {
+      console.log(`Puzzles already exist for ${today}, skipping generation`);
+      res.json({
+        status: 'success',
+        message: 'Puzzles already exist for today',
+        puzzlesGenerated: 0,
+      });
+      return;
+    }
+
+    // Generate new puzzles
+    await puzzleService.generateDailyPuzzles(today);
+
+    console.log(`Successfully generated puzzles for ${today}`);
     res.json({
       status: 'success',
       message: 'Daily puzzles generated successfully',
+      puzzlesGenerated: 3,
+      date: today,
     });
   } catch (error) {
     console.error(`Error generating daily puzzles: ${error}`);
     res.status(500).json({
       status: 'error',
       message: 'Failed to generate daily puzzles',
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
