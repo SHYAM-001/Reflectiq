@@ -37,6 +37,10 @@
       "daily-leaderboard-post": {
         "endpoint": "/internal/scheduler/post-leaderboard",
         "cron": "0 1 * * *"
+      },
+      "weekly-maintenance": {
+        "endpoint": "/internal/scheduler/weekly-maintenance",
+        "cron": "0 2 * * 0"
       }
     }
   },

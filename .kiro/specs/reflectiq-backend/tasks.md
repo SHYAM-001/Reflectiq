@@ -94,7 +94,7 @@
     - Create leaderboard statistics and analytics endpoints
     - _Requirements: 11.5, 7.4, 7.5_
 
-- [ ] 6. Implement automated scheduling system
+- [x] 6. Implement automated scheduling system
 
   - [x] 6.1 Create daily puzzle generation scheduler
 
@@ -110,7 +110,8 @@
     - Add post metadata and tracking for puzzle association
     - _Requirements: 8.2, 8.5_
 
-  - [ ] 6.3 Develop leaderboard posting automation
+  - [x] 6.3 Develop leaderboard posting automation
+
     - Implement scheduled job for daily leaderboard compilation
     - Create Reddit post generation with leaderboard results
     - Add puzzle archival and cleanup processes

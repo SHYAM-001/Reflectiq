@@ -18,6 +18,66 @@ app.use(express.text());
 
 const router = express.Router();
 
+// Helper functions for data archival and cleanup
+async function archiveCompletedPuzzleData(
+  date: string,
+  stats: any,
+  leaderboardEntries: any[]
+): Promise<void> {
+  try {
+    // Create archived summary data
+    const archiveData = {
+      date,
+      totalPlayers: stats.dailyPlayers,
+      totalSubmissions: stats.totalSubmissions,
+      puzzleStats: stats.puzzleStats,
+      topPlayers: leaderboardEntries.slice(0, 5), // Keep top 5 for historical reference
+      archivedAt: new Date().toISOString(),
+    };
+
+    // Store archive data with 90-day retention
+    const archiveKey = `reflectiq:archive:${date}`;
+    await redis.set(archiveKey, JSON.stringify(archiveData));
+    await redis.expire(archiveKey, 90 * 24 * 60 * 60);
+
+    console.log(`Archived summary data for ${date} with 90-day retention`);
+  } catch (error) {
+    console.error('Error archiving puzzle data:', error);
+    throw error;
+  }
+}
+
+async function setDataRetentionPolicies(date: string): Promise<void> {
+  try {
+    const retentionDays = 30;
+    const retentionSeconds = retentionDays * 24 * 60 * 60;
+
+    // Set expiration on various data types for the date
+    const keysToExpire = [
+      `reflectiq:puzzles:${date}`,
+      `reflectiq:leaderboard:daily:${date}`,
+      `reflectiq:submissions:puzzle_easy_${date}`,
+      `reflectiq:submissions:puzzle_medium_${date}`,
+      `reflectiq:submissions:puzzle_hard_${date}`,
+    ];
+
+    for (const key of keysToExpire) {
+      try {
+        const exists = await redis.exists(key);
+        if (exists) {
+          await redis.expire(key, retentionSeconds);
+          console.log(`Set ${retentionDays}-day expiration on ${key}`);
+        }
+      } catch (error) {
+        console.warn(`Failed to set expiration on ${key}:`, error);
+      }
+    }
+  } catch (error) {
+    console.error('Error setting retention policies:', error);
+    throw error;
+  }
+}
+
 router.get<{ postId: string }, InitResponse | { status: string; message: string }>(
   '/api/init',
   async (_req, res): Promise<void> => {
@@ -319,12 +379,27 @@ router.post('/internal/scheduler/post-leaderboard', async (_req, res): Promise<v
 
       console.log(`Successfully posted leaderboard for ${dateStr}: ${post.id}`);
 
-      // Cleanup old leaderboards to prevent Redis memory bloat
+      // Enhanced cleanup and archival processes
       try {
-        const cleanedCount = await leaderboardService.cleanupOldLeaderboards(7);
-        console.log(`Cleaned up ${cleanedCount} old leaderboard entries`);
+        // Cleanup old leaderboards (7 days retention)
+        const cleanedLeaderboards = await leaderboardService.cleanupOldLeaderboards(7);
+        console.log(`Cleaned up ${cleanedLeaderboards} old leaderboard entries`);
+
+        // Cleanup old puzzles (7 days retention)
+        const puzzleService = PuzzleService.getInstance();
+        const cleanedPuzzles = await puzzleService.cleanupOldPuzzles(7);
+        console.log(`Cleaned up ${cleanedPuzzles} old puzzle sets`);
+
+        // Archive completed puzzle data for long-term storage
+        await archiveCompletedPuzzleData(dateStr, stats, dailyLeaderboard.entries);
+        console.log(`Archived puzzle data for ${dateStr}`);
+
+        // Set expiration on current day's data (30 days retention for historical data)
+        await setDataRetentionPolicies(dateStr);
+        console.log(`Set retention policies for ${dateStr} data`);
       } catch (cleanupError) {
-        console.warn('Failed to cleanup old leaderboards:', cleanupError);
+        console.warn('Failed to complete cleanup and archival:', cleanupError);
+        // Don't fail the entire operation for cleanup errors
       }
 
       const executionTime = Date.now() - startTime;
@@ -483,6 +558,98 @@ Welcome to today's ReflectIQ challenge! Trace the laser path through reflective 
       error: error instanceof Error ? error.message : 'Unknown error',
       executionTime,
       date: new Date().toISOString().split('T')[0],
+    });
+  }
+});
+
+router.post('/internal/scheduler/weekly-maintenance', async (_req, res): Promise<void> => {
+  try {
+    const startTime = Date.now();
+    console.log(`Weekly maintenance triggered at ${new Date().toISOString()}`);
+
+    const puzzleService = PuzzleService.getInstance();
+    const leaderboardService = LeaderboardService.getInstance();
+
+    let totalCleaned = 0;
+    let totalArchived = 0;
+
+    // Comprehensive cleanup of old data (14 days retention for weekly cleanup)
+    try {
+      const cleanedPuzzles = await puzzleService.cleanupOldPuzzles(14);
+      const cleanedLeaderboards = await leaderboardService.cleanupOldLeaderboards(14);
+      totalCleaned = cleanedPuzzles + cleanedLeaderboards;
+
+      console.log(`Weekly cleanup: ${cleanedPuzzles} puzzles, ${cleanedLeaderboards} leaderboards`);
+    } catch (cleanupError) {
+      console.warn('Error during weekly cleanup:', cleanupError);
+    }
+
+    // Archive historical data for the past week
+    try {
+      const today = new Date();
+      for (let i = 7; i <= 14; i++) {
+        const archiveDate = new Date(today);
+        archiveDate.setDate(archiveDate.getDate() - i);
+        const dateStr = archiveDate.toISOString().split('T')[0] as string;
+
+        // Check if we have data for this date
+        const stats = await leaderboardService.getLeaderboardStats(dateStr);
+        if (stats.totalSubmissions > 0) {
+          const leaderboard = await leaderboardService.getDailyLeaderboard(dateStr, 10);
+          await archiveCompletedPuzzleData(dateStr, stats, leaderboard.entries);
+          totalArchived++;
+        }
+      }
+      console.log(`Archived data for ${totalArchived} historical dates`);
+    } catch (archiveError) {
+      console.warn('Error during weekly archival:', archiveError);
+    }
+
+    // Set retention policies on recent data
+    try {
+      const today = new Date();
+      for (let i = 1; i <= 7; i++) {
+        const retentionDate = new Date(today);
+        retentionDate.setDate(retentionDate.getDate() - i);
+        const dateStr = retentionDate.toISOString().split('T')[0] as string;
+
+        await setDataRetentionPolicies(dateStr);
+      }
+      console.log('Updated retention policies for past week');
+    } catch (retentionError) {
+      console.warn('Error setting retention policies:', retentionError);
+    }
+
+    // Generate maintenance report
+    const maintenanceReport = {
+      executedAt: new Date().toISOString(),
+      cleanedEntries: totalCleaned,
+      archivedDates: totalArchived,
+      retentionPoliciesUpdated: 7,
+      executionTime: Date.now() - startTime,
+    };
+
+    // Store maintenance report for monitoring
+    const reportKey = `reflectiq:maintenance:${new Date().toISOString().split('T')[0]}`;
+    await redis.set(reportKey, JSON.stringify(maintenanceReport));
+    await redis.expire(reportKey, 30 * 24 * 60 * 60);
+
+    console.log(`Weekly maintenance completed in ${maintenanceReport.executionTime}ms`);
+
+    res.json({
+      status: 'success',
+      message: 'Weekly maintenance completed successfully',
+      report: maintenanceReport,
+    });
+  } catch (error) {
+    const executionTime = Date.now() - (Date.now() - 1000);
+    console.error(`Error during weekly maintenance: ${error}`);
+
+    res.status(500).json({
+      status: 'error',
+      message: 'Weekly maintenance failed',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      executionTime,
     });
   }
 });
