@@ -78,16 +78,17 @@
     - Create leaderboard update logic using Redis sorted sets
     - _Requirements: 11.4, 6.1, 6.2, 6.3, 6.4, 6.5_
 
-- [ ] 5. Build leaderboard system
+- [x] 5. Build leaderboard system
 
-  - [ ] 5.1 Implement Redis-based leaderboard management
+  - [x] 5.1 Implement Redis-based leaderboard management
 
     - Create sorted set operations for real-time ranking
     - Implement separate leaderboards per puzzle and combined daily
     - Add leaderboard query and pagination logic
     - _Requirements: 7.1, 7.2, 7.3, 7.4, 7.5, 9.3_
 
-  - [ ] 5.2 Create leaderboard API endpoints
+  - [x] 5.2 Create leaderboard API endpoints
+
     - Implement GET /api/leaderboard/daily with date filtering
     - Add leaderboard data formatting and user privacy handling
     - Create leaderboard statistics and analytics endpoints

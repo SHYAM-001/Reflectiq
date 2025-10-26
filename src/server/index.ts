@@ -4,6 +4,7 @@ import { redis, reddit, createServer, context, getServerPort } from '@devvit/web
 import { createPost } from './core/post';
 import { PuzzleService } from './services/PuzzleService.js';
 import puzzleRoutes from './routes/puzzleRoutes.js';
+import leaderboardRoutes from './routes/leaderboardRoutes.js';
 
 const app = express();
 
@@ -95,6 +96,7 @@ router.post<{ postId: string }, DecrementResponse | { status: string; message: s
 
 // API Routes
 router.use('/api/puzzle', puzzleRoutes);
+router.use('/api/leaderboard', leaderboardRoutes);
 
 router.post('/internal/on-app-install', async (_req, res): Promise<void> => {
   try {
