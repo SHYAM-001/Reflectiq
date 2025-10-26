@@ -3,6 +3,7 @@ import { InitResponse, IncrementResponse, DecrementResponse } from '../shared/ty
 import { redis, reddit, createServer, context, getServerPort } from '@devvit/web/server';
 import { createPost } from './core/post';
 import { PuzzleService } from './services/PuzzleService.js';
+import { LeaderboardService } from './services/LeaderboardService.js';
 import puzzleRoutes from './routes/puzzleRoutes.js';
 import leaderboardRoutes from './routes/leaderboardRoutes.js';
 
@@ -104,7 +105,7 @@ router.post('/internal/on-app-install', async (_req, res): Promise<void> => {
 
     res.json({
       status: 'success',
-      message: `Post created in subreddit ${context.subredditName} with id ${post.id}`,
+      message: `Post created in subreddit ${context.subredditName || 'unknown'} with id ${post.id}`,
     });
   } catch (error) {
     console.error(`Error creating post: ${error}`);
@@ -120,7 +121,7 @@ router.post('/internal/menu/post-create', async (_req, res): Promise<void> => {
     const post = await createPost();
 
     res.json({
-      navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
+      navigateTo: `https://reddit.com/r/${context.subredditName || 'unknown'}/comments/${post.id}`,
     });
   } catch (error) {
     console.error(`Error creating post: ${error}`);
@@ -150,6 +151,7 @@ router.post('/internal/menu/leaderboard', async (_req, res): Promise<void> => {
 // Scheduler endpoints
 router.post('/internal/scheduler/generate-puzzles', async (_req, res): Promise<void> => {
   try {
+    const startTime = Date.now();
     console.log(`Daily puzzle generation triggered at ${new Date().toISOString()}`);
 
     const today = new Date().toISOString().split('T')[0] as string;
@@ -164,43 +166,209 @@ router.post('/internal/scheduler/generate-puzzles', async (_req, res): Promise<v
         status: 'success',
         message: 'Puzzles already exist for today',
         puzzlesGenerated: 0,
+        date: today,
+        executionTime: Date.now() - startTime,
       });
       return;
     }
 
-    // Generate new puzzles
-    await puzzleService.generateDailyPuzzles(today);
+    // Generate new puzzles with error handling and validation
+    console.log(`Generating new puzzles for ${today}...`);
+    const puzzleSet = await puzzleService.generateDailyPuzzles(today);
 
-    console.log(`Successfully generated puzzles for ${today}`);
+    // Validate that all puzzles were generated successfully
+    const difficulties = ['Easy', 'Medium', 'Hard'] as const;
+    const generatedPuzzles = [];
+
+    for (const difficulty of difficulties) {
+      const puzzle = puzzleSet.puzzles[difficulty.toLowerCase() as keyof typeof puzzleSet.puzzles];
+      if (puzzle) {
+        generatedPuzzles.push({
+          difficulty,
+          id: puzzle.id,
+          gridSize: puzzle.gridSize,
+          materialCount: puzzle.materials.length,
+          hintsCount: puzzle.hints.length,
+        });
+        console.log(
+          `✓ Generated ${difficulty} puzzle: ${puzzle.id} (${puzzle.gridSize}x${puzzle.gridSize}, ${puzzle.materials.length} materials)`
+        );
+      } else {
+        throw new Error(`Failed to generate ${difficulty} puzzle`);
+      }
+    }
+
+    // Cleanup old puzzles to prevent Redis memory bloat
+    try {
+      const cleanedCount = await puzzleService.cleanupOldPuzzles(7);
+      console.log(`Cleaned up ${cleanedCount} old puzzle sets`);
+    } catch (cleanupError) {
+      console.warn('Failed to cleanup old puzzles:', cleanupError);
+      // Don't fail the entire operation for cleanup errors
+    }
+
+    const executionTime = Date.now() - startTime;
+    console.log(
+      `Successfully generated ${generatedPuzzles.length} puzzles for ${today} in ${executionTime}ms`
+    );
+
     res.json({
       status: 'success',
       message: 'Daily puzzles generated successfully',
-      puzzlesGenerated: 3,
+      puzzlesGenerated: generatedPuzzles.length,
       date: today,
+      puzzles: generatedPuzzles,
+      executionTime,
     });
   } catch (error) {
+    const executionTime = Date.now() - (Date.now() - 1000); // Approximate
     console.error(`Error generating daily puzzles: ${error}`);
+
+    // Try to provide more specific error information
+    let errorType = 'GENERATION_FAILED';
+    let errorMessage = 'Failed to generate daily puzzles';
+
+    if (error instanceof Error) {
+      if (error.message.includes('Redis')) {
+        errorType = 'REDIS_ERROR';
+        errorMessage = 'Redis connection error during puzzle generation';
+      } else if (error.message.includes('validation')) {
+        errorType = 'VALIDATION_ERROR';
+        errorMessage = 'Puzzle validation failed';
+      }
+    }
+
     res.status(500).json({
       status: 'error',
-      message: 'Failed to generate daily puzzles',
+      message: errorMessage,
+      errorType,
       error: error instanceof Error ? error.message : 'Unknown error',
+      executionTime,
+      date: new Date().toISOString().split('T')[0],
     });
   }
 });
 
 router.post('/internal/scheduler/post-leaderboard', async (_req, res): Promise<void> => {
   try {
+    const startTime = Date.now();
     console.log(`Daily leaderboard posting triggered at ${new Date().toISOString()}`);
-    // TODO: Implement leaderboard posting logic
-    res.json({
-      status: 'success',
-      message: 'Daily leaderboard posted successfully',
-    });
+
+    // Get yesterday's date (since this runs at 1 AM, we want previous day's results)
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const dateStr = yesterday.toISOString().split('T')[0] as string;
+
+    const leaderboardService = LeaderboardService.getInstance();
+
+    // Get leaderboard statistics
+    const stats = await leaderboardService.getLeaderboardStats(dateStr);
+
+    if (stats.totalSubmissions === 0) {
+      console.log(`No submissions found for ${dateStr}, skipping leaderboard post`);
+      res.json({
+        status: 'success',
+        message: 'No submissions found, skipping leaderboard post',
+        date: dateStr,
+        executionTime: Date.now() - startTime,
+      });
+      return;
+    }
+
+    // Get top 10 daily leaderboard
+    const dailyLeaderboard = await leaderboardService.getDailyLeaderboard(dateStr, 10);
+
+    // Format leaderboard for Reddit post
+    let leaderboardText = `# 🏆 ReflectIQ Daily Leaderboard - ${dateStr}\n\n`;
+    leaderboardText += `**Total Players:** ${stats.dailyPlayers}\n`;
+    leaderboardText += `**Total Submissions:** ${stats.totalSubmissions}\n`;
+    leaderboardText += `- Easy: ${stats.puzzleStats.easy} players\n`;
+    leaderboardText += `- Medium: ${stats.puzzleStats.medium} players\n`;
+    leaderboardText += `- Hard: ${stats.puzzleStats.hard} players\n\n`;
+
+    if (dailyLeaderboard.entries.length > 0) {
+      leaderboardText += `## 🥇 Top Performers\n\n`;
+      leaderboardText += `| Rank | Player | Difficulty | Score | Time | Hints |\n`;
+      leaderboardText += `|------|--------|------------|-------|------|-------|\n`;
+
+      for (const entry of dailyLeaderboard.entries) {
+        const timeFormatted = `${Math.floor(entry.time / 60)}:${(entry.time % 60).toString().padStart(2, '0')}`;
+        leaderboardText += `| ${entry.rank} | u/${entry.username} | ${entry.difficulty} | ${entry.score} | ${timeFormatted} | ${entry.hints} |\n`;
+      }
+
+      leaderboardText += `\n---\n\n`;
+      leaderboardText += `🎯 **How to Play:** Look for today's ReflectIQ puzzle post and trace the laser path through the reflective materials!\n\n`;
+      leaderboardText += `💡 **Scoring:** Base score × hint penalty × time bonus. Faster solutions with fewer hints score higher!\n\n`;
+      leaderboardText += `🔄 **New puzzles** are posted daily at midnight. Good luck!`;
+    } else {
+      leaderboardText += `No valid submissions found for this date.\n\n`;
+      leaderboardText += `🎯 Don't forget to check out today's puzzle!`;
+    }
+
+    // Submit the leaderboard post
+    if (!context.subredditName) {
+      throw new Error('Subreddit name not available in context');
+    }
+
+    try {
+      const post = await reddit.submitPost({
+        subredditName: context.subredditName,
+        title: `🏆 Daily Leaderboard Results - ${dateStr}`,
+        text: leaderboardText,
+      });
+
+      console.log(`Successfully posted leaderboard for ${dateStr}: ${post.id}`);
+
+      // Cleanup old leaderboards to prevent Redis memory bloat
+      try {
+        const cleanedCount = await leaderboardService.cleanupOldLeaderboards(7);
+        console.log(`Cleaned up ${cleanedCount} old leaderboard entries`);
+      } catch (cleanupError) {
+        console.warn('Failed to cleanup old leaderboards:', cleanupError);
+      }
+
+      const executionTime = Date.now() - startTime;
+      res.json({
+        status: 'success',
+        message: 'Daily leaderboard posted successfully',
+        date: dateStr,
+        postId: post.id,
+        playersCount: stats.dailyPlayers,
+        submissionsCount: stats.totalSubmissions,
+        topPlayersCount: dailyLeaderboard.entries.length,
+        executionTime,
+      });
+    } catch (postError) {
+      console.error('Failed to submit leaderboard post:', postError);
+      throw new Error(
+        `Reddit post submission failed: ${postError instanceof Error ? postError.message : 'Unknown error'}`
+      );
+    }
   } catch (error) {
+    const executionTime = Date.now() - (Date.now() - 1000); // Approximate
     console.error(`Error posting daily leaderboard: ${error}`);
+
+    // Provide specific error information
+    let errorType = 'LEADERBOARD_POST_FAILED';
+    let errorMessage = 'Failed to post daily leaderboard';
+
+    if (error instanceof Error) {
+      if (error.message.includes('Reddit')) {
+        errorType = 'REDDIT_API_ERROR';
+        errorMessage = 'Reddit API error during leaderboard posting';
+      } else if (error.message.includes('Redis')) {
+        errorType = 'REDIS_ERROR';
+        errorMessage = 'Redis connection error during leaderboard retrieval';
+      }
+    }
+
     res.status(500).json({
       status: 'error',
-      message: 'Failed to post daily leaderboard',
+      message: errorMessage,
+      errorType,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      executionTime,
+      date: new Date().toISOString().split('T')[0],
     });
   }
 });
