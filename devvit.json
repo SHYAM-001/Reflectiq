@@ -30,6 +30,10 @@
         "endpoint": "/internal/scheduler/generate-puzzles",
         "cron": "0 0 * * *"
       },
+      "daily-puzzle-post": {
+        "endpoint": "/internal/scheduler/post-daily-puzzle",
+        "cron": "5 0 * * *"
+      },
       "daily-leaderboard-post": {
         "endpoint": "/internal/scheduler/post-leaderboard",
         "cron": "0 1 * * *"

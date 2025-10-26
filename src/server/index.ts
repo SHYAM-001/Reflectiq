@@ -373,6 +373,120 @@ router.post('/internal/scheduler/post-leaderboard', async (_req, res): Promise<v
   }
 });
 
+router.post('/internal/scheduler/post-daily-puzzle', async (_req, res): Promise<void> => {
+  try {
+    const startTime = Date.now();
+    console.log(`Daily puzzle posting triggered at ${new Date().toISOString()}`);
+
+    const today = new Date().toISOString().split('T')[0] as string;
+    const puzzleService = PuzzleService.getInstance();
+
+    // Check if puzzles exist for today
+    const puzzlesExist = await puzzleService.puzzlesExistForDate(today);
+
+    if (!puzzlesExist) {
+      console.log(`No puzzles found for ${today}, cannot create post`);
+      res.json({
+        status: 'error',
+        message: 'No puzzles available for today',
+        date: today,
+        executionTime: Date.now() - startTime,
+      });
+      return;
+    }
+
+    // Get today's puzzle statistics
+    const puzzleStats = await puzzleService.getPuzzleStats(today);
+
+    if (!context.subredditName) {
+      throw new Error('Subreddit name not available in context');
+    }
+
+    // Create the daily puzzle post
+    const postText = `# 🎯 Daily ReflectIQ Puzzle - ${today}
+
+Welcome to today's ReflectIQ challenge! Trace the laser path through reflective materials to find the exit point.
+
+## 🎮 How to Play
+1. **Choose your difficulty:**
+   - 🟢 **Easy** (6x6 grid) - Mirrors and absorbers only
+   - 🟡 **Medium** (8x8 grid) - Mirrors, water, glass, and absorbers  
+   - 🔴 **Hard** (10x10 grid) - All materials including metal
+
+2. **Trace the laser path** through the materials
+3. **Submit your answer** as a comment with format: \`Exit: [x,y]\`
+
+## 🏆 Scoring
+- **Base Score:** Easy (150), Medium (400), Hard (800) points
+- **Time Bonus:** Faster solutions score higher
+- **Hint Penalty:** Each hint reduces your score multiplier
+
+## 📊 Today's Stats
+- **Puzzles Available:** ${puzzleStats.difficulties.length}
+- **Generated:** ${puzzleStats.generatedAt ? new Date(puzzleStats.generatedAt).toLocaleTimeString() : 'Recently'}
+
+---
+
+**🚀 Ready to play?** Click this post to start the interactive puzzle!
+
+*Good luck, and may your laser find its way! ⚡*`;
+
+    try {
+      const post = await reddit.submitPost({
+        subredditName: context.subredditName,
+        title: `🎯 Daily ReflectIQ Puzzle - ${today}`,
+        text: postText,
+      });
+
+      console.log(`Successfully posted daily puzzle for ${today}: ${post.id}`);
+
+      const executionTime = Date.now() - startTime;
+      res.json({
+        status: 'success',
+        message: 'Daily puzzle posted successfully',
+        date: today,
+        postId: post.id,
+        puzzleStats,
+        executionTime,
+      });
+    } catch (postError) {
+      console.error('Failed to submit daily puzzle post:', postError);
+      throw new Error(
+        `Reddit post submission failed: ${postError instanceof Error ? postError.message : 'Unknown error'}`
+      );
+    }
+  } catch (error) {
+    const executionTime = Date.now() - (Date.now() - 1000); // Approximate
+    console.error(`Error posting daily puzzle: ${error}`);
+
+    // Provide specific error information
+    let errorType = 'PUZZLE_POST_FAILED';
+    let errorMessage = 'Failed to post daily puzzle';
+
+    if (error instanceof Error) {
+      if (error.message.includes('Reddit')) {
+        errorType = 'REDDIT_API_ERROR';
+        errorMessage = 'Reddit API error during puzzle posting';
+      } else if (error.message.includes('Redis')) {
+        errorType = 'REDIS_ERROR';
+        errorMessage = 'Redis connection error during puzzle retrieval';
+      } else if (error.message.includes('Subreddit')) {
+        errorType = 'CONTEXT_ERROR';
+        errorMessage = 'Subreddit context not available';
+      }
+    }
+
+    res.status(500).json({
+      status: 'error',
+      message: errorMessage,
+      errorType,
+      error: error instanceof Error ? error.message : 'Unknown error',
+      executionTime,
+      date: new Date().toISOString().split('T')[0],
+    });
+  }
+});
+
 // Trigger endpoints
 router.post('/internal/triggers/post-submit', async (_req, res): Promise<void> => {
   try {
