@@ -1,20 +1,61 @@
-import { useState } from 'react';
 import { StartScreen } from '../components/StartScreen';
 import { PuzzleScreen } from '../components/puzzle/PuzzleScreen';
-import { samplePuzzle } from '../data/samplePuzzles';
+import { LoadingScreen } from '../components/LoadingScreen';
+import { ErrorScreen } from '../components/ErrorScreen';
+import { SubmissionScreen } from '../components/SubmissionScreen';
+import { useGameState } from '../hooks/use-game-state';
 
 const Index = () => {
-  const [gameStarted, setGameStarted] = useState(false);
+  const gameState = useGameState();
 
-  return (
-    <>
-      {!gameStarted ? (
-        <StartScreen onStart={() => setGameStarted(true)} />
-      ) : (
-        <PuzzleScreen puzzleData={samplePuzzle} onBack={() => setGameStarted(false)} />
-      )}
-    </>
-  );
+  const renderScreen = () => {
+    switch (gameState.gameState) {
+      case 'loading':
+        return <LoadingScreen />;
+
+      case 'error':
+        return (
+          <ErrorScreen
+            error={gameState.error || 'An unknown error occurred'}
+            onRetry={gameState.retryGame}
+            onReset={gameState.resetGame}
+          />
+        );
+
+      case 'menu':
+        return <StartScreen onStart={gameState.startGame} />;
+
+      case 'playing':
+        return (
+          <PuzzleScreen
+            puzzle={gameState.currentPuzzle!}
+            session={gameState.session!}
+            hintsUsed={gameState.hintsUsed}
+            hintPaths={gameState.hintPaths}
+            isTimerRunning={gameState.isTimerRunning}
+            onRequestHint={gameState.requestHint}
+            onSubmitAnswer={gameState.submitAnswer}
+            onBack={gameState.resetGame}
+          />
+        );
+
+      case 'completed':
+        return (
+          <SubmissionScreen
+            puzzle={gameState.currentPuzzle!}
+            selectedAnswer={gameState.selectedAnswer!}
+            finalTime={gameState.finalTime!}
+            hintsUsed={gameState.hintsUsed}
+            onPlayAgain={gameState.resetGame}
+          />
+        );
+
+      default:
+        return <LoadingScreen />;
+    }
+  };
+
+  return renderScreen();
 };
 
 export default Index;

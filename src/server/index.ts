@@ -671,12 +671,75 @@ router.post('/internal/triggers/post-submit', async (_req, res): Promise<void> =
   }
 });
 
-router.post('/internal/triggers/comment-submit', async (_req, res): Promise<void> => {
+router.post('/internal/triggers/comment-submit', async (req, res): Promise<void> => {
   try {
-    // TODO: Handle comment submission events (puzzle answers)
+    const commentData = req.body;
+    console.log('Comment submission received:', commentData);
+
+    // Extract comment information
+    const { body: commentBody, author, postId } = commentData;
+
+    if (!commentBody || !author || !postId) {
+      console.log('Missing required comment data');
+      res.json({
+        status: 'success',
+        message: 'Comment processed (missing data)',
+      });
+      return;
+    }
+
+    // Check if comment matches answer format: "Exit: [Cell]"
+    const answerMatch = commentBody.match(/^Exit:\s*([A-Z]\d+)$/i);
+
+    if (!answerMatch) {
+      console.log('Comment does not match answer format:', commentBody);
+      res.json({
+        status: 'success',
+        message: 'Comment processed (not an answer)',
+      });
+      return;
+    }
+
+    const answerCell = answerMatch[1].toUpperCase();
+    console.log(`Processing answer submission: ${answerCell} from ${author}`);
+
+    // Parse the answer cell (e.g., "A1" -> [0, 0])
+    const letter = answerCell.charAt(0);
+    const number = parseInt(answerCell.slice(1));
+
+    if (!letter || isNaN(number)) {
+      console.log('Invalid answer format:', answerCell);
+      res.json({
+        status: 'success',
+        message: 'Comment processed (invalid format)',
+      });
+      return;
+    }
+
+    const row = letter.charCodeAt(0) - 65; // A=0, B=1, etc.
+    const col = number - 1; // 1-based to 0-based
+    const answer: [number, number] = [row, col];
+
+    // TODO: Determine puzzle difficulty from post metadata or context
+    // For now, we'll try to find an active session for this user
+    const today = new Date().toISOString().split('T')[0];
+
+    // Try to find the user's active session
+    // This is a simplified approach - in production, we'd need better session management
+    console.log(`Processing answer for user ${author}: ${answerCell} -> [${row}, ${col}]`);
+
+    // TODO: Implement actual answer processing with session lookup and scoring
+    // For now, just log the submission
+    console.log('Answer submission logged successfully');
+
     res.json({
       status: 'success',
-      message: 'Comment submission processed',
+      message: 'Answer submission processed',
+      data: {
+        user: author,
+        answer: answerCell,
+        coordinates: answer,
+      },
     });
   } catch (error) {
     console.error(`Error processing comment submission: ${error}`);

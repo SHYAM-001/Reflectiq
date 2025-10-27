@@ -1,42 +1,35 @@
-import { PuzzleData } from "../../types/puzzle";
-import { GridCell } from "./GridCell";
-import { useMemo } from "react";
+import { Puzzle, HintPath, PathSegment } from '../../types/api';
+import { GridCell } from './GridCell';
+import { useMemo } from 'react';
 
 interface PuzzleGridProps {
-  puzzleData: PuzzleData;
-  revealedQuadrants: number[];
-  showLaser?: boolean;
+  puzzle: Puzzle;
+  hintPaths: HintPath[];
 }
 
-export const PuzzleGrid = ({
-  puzzleData,
-  revealedQuadrants,
-  showLaser = false,
-}: PuzzleGridProps) => {
-  const [rows, cols] = useMemo(() => {
-    const [r, c] = puzzleData.gridSize.split("x").map(Number);
-    return [r, c];
-  }, [puzzleData.gridSize]);
+export const PuzzleGrid = ({ puzzle, hintPaths }: PuzzleGridProps) => {
+  const gridSize = puzzle.gridSize;
 
-  const getCellPosition = (row: number, col: number): string => {
-    const letter = String.fromCharCode(65 + row); // A, B, C...
-    return `${letter}${col + 1}`;
+  const getMaterialAtPosition = (row: number, col: number) => {
+    return puzzle.materials.find((m) => m.position[0] === row && m.position[1] === col);
   };
 
-  const getMaterialAtPosition = (position: string) => {
-    return puzzleData.materials.find((m) => m.position === position);
-  };
+  // Get all revealed path segments based on hints used
+  const revealedSegments = useMemo(() => {
+    const segments: PathSegment[] = [];
+    for (const hintPath of hintPaths) {
+      segments.push(...hintPath.segments);
+    }
+    return segments;
+  }, [hintPaths]);
 
-  const isRevealed = (row: number, col: number): boolean => {
-    const midRow = Math.floor(rows / 2);
-    const midCol = Math.floor(cols / 2);
-
-    // Quadrant 1: top-left (0), top-right (1), bottom-left (2), bottom-right (3)
-    if (row < midRow && col < midCol) return revealedQuadrants.includes(0);
-    if (row < midRow && col >= midCol) return revealedQuadrants.includes(1);
-    if (row >= midRow && col < midCol) return revealedQuadrants.includes(2);
-    if (row >= midRow && col >= midCol) return revealedQuadrants.includes(3);
-    return false;
+  // Check if a cell is part of the revealed laser path
+  const isOnLaserPath = (row: number, col: number): boolean => {
+    return revealedSegments.some(
+      (segment) =>
+        (segment.start[0] === row && segment.start[1] === col) ||
+        (segment.end[0] === row && segment.end[1] === col)
+    );
   };
 
   return (
@@ -44,45 +37,55 @@ export const PuzzleGrid = ({
       <div
         className="grid gap-1 md:gap-2 w-full"
         style={{
-          gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${gridSize}, minmax(0, 1fr))`,
         }}
       >
-        {Array.from({ length: rows }, (_, row) =>
-          Array.from({ length: cols }, (_, col) => {
-            const position = getCellPosition(row, col);
-            const material = getMaterialAtPosition(position);
-            const isEntry = position === puzzleData.entry;
-            const isExit = position === puzzleData.exit;
-            const revealed = isRevealed(row, col);
+        {Array.from({ length: gridSize }, (_, row) =>
+          Array.from({ length: gridSize }, (_, col) => {
+            const material = getMaterialAtPosition(row, col);
+            const isEntry = puzzle.entry[0] === row && puzzle.entry[1] === col;
+            const isExit = puzzle.solution[0] === row && puzzle.solution[1] === col;
+            const isOnPath = isOnLaserPath(row, col);
 
             return (
               <GridCell
-                key={position}
-                position={position}
+                key={`${row}-${col}`}
+                row={row}
+                col={col}
                 material={material}
                 isEntry={isEntry}
                 isExit={isExit}
-                isRevealed={revealed}
+                isOnLaserPath={isOnPath}
               />
             );
           })
         )}
       </div>
 
-      {/* Laser beam overlay - simplified visual representation */}
-      {showLaser && (
+      {/* Laser path overlay */}
+      {revealedSegments.length > 0 && (
         <div className="absolute inset-0 pointer-events-none">
-          <svg className="w-full h-full">
-            <line
-              x1="10%"
-              y1="10%"
-              x2="90%"
-              y2="90%"
-              stroke="hsl(var(--laser))"
-              strokeWidth="2"
-              strokeDasharray="5,5"
-              className="animate-laser-flow drop-shadow-[0_0_10px_rgba(255,45,85,0.8)]"
-            />
+          <svg className="w-full h-full" viewBox={`0 0 ${gridSize} ${gridSize}`}>
+            {revealedSegments.map((segment, index) => {
+              const x1 = segment.start[1] + 0.5; // col + center offset
+              const y1 = segment.start[0] + 0.5; // row + center offset
+              const x2 = segment.end[1] + 0.5;
+              const y2 = segment.end[0] + 0.5;
+
+              return (
+                <line
+                  key={index}
+                  x1={x1}
+                  y1={y1}
+                  x2={x2}
+                  y2={y2}
+                  stroke="#ff2d55"
+                  strokeWidth="0.1"
+                  strokeDasharray="0.1,0.05"
+                  className="animate-pulse drop-shadow-[0_0_10px_rgba(255,45,85,0.8)]"
+                />
+              );
+            })}
           </svg>
         </div>
       )}

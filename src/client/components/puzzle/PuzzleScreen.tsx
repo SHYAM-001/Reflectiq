@@ -3,83 +3,94 @@ import { Button } from '../ui/button';
 import { Timer } from './Timer';
 import { HintButton } from './HintButton';
 import { PuzzleGrid } from './PuzzleGrid';
-import { PuzzleData } from '../../types/puzzle';
+import { AnswerInput } from './AnswerInput';
+import { Puzzle, SessionData, HintPath, GridPosition } from '../../types/api';
 import { Send } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface PuzzleScreenProps {
-  puzzleData: PuzzleData;
+  puzzle: Puzzle;
+  session: SessionData;
+  hintsUsed: number;
+  hintPaths: HintPath[];
+  isTimerRunning: boolean;
+  onRequestHint: () => void;
+  onSubmitAnswer: (answer: GridPosition, timeTaken: number) => void;
   onBack: () => void;
 }
 
-export const PuzzleScreen = ({ puzzleData, onBack }: PuzzleScreenProps) => {
-  const [hintsUsed, setHintsUsed] = useState(0);
-  const [revealedQuadrants, setRevealedQuadrants] = useState<number[]>([]);
-  const [isTimerRunning, setIsTimerRunning] = useState(true);
-  const [finalTime, setFinalTime] = useState<number | null>(null);
-
-  const handleUseHint = () => {
-    if (hintsUsed >= 4) return;
-
-    const nextQuadrant = hintsUsed;
-    setRevealedQuadrants((prev) => [...prev, nextQuadrant]);
-    setHintsUsed((prev) => prev + 1);
-
-    toast.success(`Hint ${hintsUsed + 1} revealed! Quarter section illuminated.`, {
-      duration: 2000,
-    });
-  };
+export const PuzzleScreen = ({
+  puzzle,
+  hintsUsed,
+  hintPaths,
+  isTimerRunning,
+  onRequestHint,
+  onSubmitAnswer,
+  onBack,
+}: PuzzleScreenProps) => {
+  const [currentTime, setCurrentTime] = useState(0);
+  const [selectedAnswer, setSelectedAnswer] = useState<GridPosition | null>(null);
 
   const handleSubmit = () => {
-    setIsTimerRunning(false);
-    toast.success('Answer submitted! Time stopped.', {
-      duration: 3000,
-      description: `Your time: ${Math.floor((finalTime || 0) / 60)}:${((finalTime || 0) % 60).toString().padStart(2, '0')}`,
-    });
+    if (!selectedAnswer) {
+      toast.error('Please select an exit cell first');
+      return;
+    }
 
-    // In a real implementation, this would redirect to Reddit post
-    // For now, just show a message
-    setTimeout(() => {
-      toast.info('In production, this would open the Reddit comment box', {
-        duration: 3000,
-      });
-    }, 1000);
+    // Format the answer for Reddit comment submission
+    const letter = String.fromCharCode(65 + selectedAnswer[0]);
+    const number = selectedAnswer[1] + 1;
+    const formattedAnswer = `${letter}${number}`;
+
+    // Stop the timer and show submission instructions
+    onSubmitAnswer(selectedAnswer, currentTime);
+
+    // Show instructions for Reddit comment submission
+    toast.success(`Time stopped! Submit your answer as a comment: "Exit: ${formattedAnswer}"`, {
+      duration: 10000,
+      description: 'Click this post to open Reddit and submit your answer as a comment',
+    });
   };
 
   return (
     <div className="min-h-screen flex flex-col bg-gradient-bg overflow-hidden">
       {/* Top Bar */}
       <div className="flex justify-between items-center p-4 md:p-6">
-        <Timer isRunning={isTimerRunning} onTimeUpdate={setFinalTime} />
-        <HintButton hintsRemaining={4 - hintsUsed} onUseHint={handleUseHint} />
+        <div className="flex items-center space-x-4">
+          <div className="text-sm text-foreground/60">
+            {puzzle.difficulty} • {puzzle.gridSize}x{puzzle.gridSize}
+          </div>
+        </div>
+
+        <div className="flex items-center space-x-4">
+          <Timer isRunning={isTimerRunning} onTimeUpdate={setCurrentTime} />
+          <HintButton hintsRemaining={4 - hintsUsed} onUseHint={onRequestHint} />
+        </div>
       </div>
 
       {/* Main Grid Area */}
       <div className="flex-1 flex items-center justify-center p-4">
-        <PuzzleGrid
-          puzzleData={puzzleData}
-          revealedQuadrants={revealedQuadrants}
-          showLaser={hintsUsed === 4}
-        />
+        <PuzzleGrid puzzle={puzzle} hintPaths={hintPaths} />
       </div>
 
       {/* Bottom Bar */}
-      <div className="flex justify-center items-center p-4 md:p-6 gap-4">
-        <Button
-          onClick={onBack}
-          variant="outline"
-          className="border-border/50 hover:border-primary/50"
-        >
-          Back to Start
-        </Button>
-        <Button
-          onClick={handleSubmit}
-          disabled={!isTimerRunning}
-          className="bg-gradient-primary text-primary-foreground font-poppins font-semibold px-6 py-3 rounded-xl shadow-glow-primary hover:scale-105 transition-all duration-300"
-        >
-          <Send className="mr-2 h-4 w-4" />
-          Submit Exit Cell
-        </Button>
+      <div className="p-4 md:p-6 space-y-4">
+        <AnswerInput
+          gridSize={puzzle.gridSize}
+          selectedAnswer={selectedAnswer}
+          onAnswerChange={setSelectedAnswer}
+        />
+
+        <div className="flex justify-center">
+          <Button
+            onClick={handleSubmit}
+            disabled={!isTimerRunning || !selectedAnswer}
+            className="bg-gradient-primary text-primary-foreground font-poppins font-semibold px-8 py-3 rounded-xl shadow-glow-primary hover:scale-105 transition-all duration-300 disabled:opacity-50 disabled:hover:scale-100"
+          >
+            <Send className="mr-2 h-4 w-4" />
+            Submit Answer
+          </Button>
+        </div>
       </div>
     </div>
   );

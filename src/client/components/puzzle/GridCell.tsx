@@ -1,21 +1,22 @@
-import { Material, MaterialType } from '../../types/puzzle';
+import { Material } from '../../types/api';
 import { cn } from '../../lib/utils';
 
 interface GridCellProps {
-  position: string;
+  row: number;
+  col: number;
   material?: Material;
   isEntry?: boolean;
   isExit?: boolean;
-  isRevealed?: boolean;
+  isOnLaserPath?: boolean;
 }
 
-const getMaterialColor = (type: MaterialType): string => {
+const getMaterialColor = (type: Material['type']): string => {
   const colors = {
-    mirror: 'bg-material-mirror',
-    glass: 'bg-material-glass',
-    water: 'bg-material-water',
-    metal: 'bg-material-metal',
-    absorber: 'bg-material-absorber',
+    mirror: 'bg-slate-300 border-slate-400',
+    glass: 'bg-blue-200/50 border-blue-300',
+    water: 'bg-cyan-200/50 border-cyan-300',
+    metal: 'bg-gray-400 border-gray-500',
+    absorber: 'bg-black border-gray-600',
   };
   return colors[type];
 };
@@ -36,16 +37,18 @@ const getMaterialIcon = (material: Material): React.JSX.Element | null => {
   return null;
 };
 
-export const GridCell = ({ position, material, isEntry, isExit, isRevealed }: GridCellProps) => {
+export const GridCell = ({ row, col, material, isEntry, isExit, isOnLaserPath }: GridCellProps) => {
+  const position = `${String.fromCharCode(65 + row)}${col + 1}`;
+
   return (
     <div
       className={cn(
-        'relative aspect-square border border-border/30 transition-all duration-300 hover:border-primary/50 hover:shadow-glow-primary cursor-pointer group',
+        'relative aspect-square border border-border/30 transition-all duration-300 hover:border-primary/50 cursor-pointer group',
         material && getMaterialColor(material.type),
-        isEntry && 'ring-2 ring-primary shadow-glow-primary',
-        isExit && 'ring-2 ring-laser shadow-glow-laser',
+        isEntry && 'ring-2 ring-green-500 bg-green-100/20',
+        isExit && 'ring-2 ring-red-500 bg-red-100/20',
         !material && 'bg-card/20 backdrop-blur-sm',
-        isRevealed && 'animate-pulse'
+        isOnLaserPath && 'ring-1 ring-red-400 bg-red-100/20 animate-pulse'
       )}
     >
       {/* Position label */}

@@ -1,6 +1,6 @@
-import { Button } from "../components/ui/button";
-import { ChevronDown, Play, Trophy } from "lucide-react";
-import { useState } from "react";
+import { Button } from '../components/ui/button';
+import { ChevronDown, Play } from 'lucide-react';
+import { useState } from 'react';
 
 interface StartScreenProps {
   onStart: () => void;
@@ -32,12 +32,10 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
         <h1 className="font-montserrat font-black text-6xl md:text-8xl bg-gradient-primary bg-clip-text text-transparent animate-shimmer bg-[length:200%_100%] drop-shadow-[0_0_30px_rgba(0,122,255,0.5)]">
           ReflectiQ
         </h1>
-
         {/* Subtitle */}
         <p className="font-poppins text-lg md:text-2xl text-foreground/80 tracking-wide">
           Trace the light. Decode the reflections.
         </p>
-
         {/* Primary CTA */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Button
@@ -46,10 +44,9 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
             className="bg-gradient-primary text-primary-foreground font-poppins font-bold text-lg px-8 py-6 rounded-xl shadow-glow-primary hover:scale-105 transition-all duration-300 hover:shadow-[0_0_40px_rgba(0,122,255,0.8)]"
           >
             <Play className="mr-2 h-5 w-5" />
-            Start to Solve
+            Start Puzzle
           </Button>
         </div>
-
         {/* How to Play */}
         <div className="pt-8">
           <button
@@ -59,7 +56,7 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
             How to Play
             <ChevronDown
               className={`h-4 w-4 transition-transform duration-300 ${
-                showGuide ? "rotate-180" : ""
+                showGuide ? 'rotate-180' : ''
               }`}
             />
           </button>
@@ -89,7 +86,7 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
                     Use hints to visualize
                   </h3>
                   <p className="text-foreground/60 text-sm">
-                    Click hints to reveal quarter sections and see how the laser reflects
+                    Click hints to progressively reveal the laser path through the puzzle
                   </p>
                 </div>
               </div>

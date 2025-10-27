@@ -45,9 +45,10 @@ export interface LaserPath {
 
 // Hint data for progressive revelation
 export interface HintPath {
-  quadrant: 1 | 2 | 3 | 4; // which quarter of the grid
-  segments: PathSegment[]; // path segments in this quadrant
+  hintLevel: 1 | 2 | 3 | 4; // which hint level (1-4)
+  segments: PathSegment[]; // path segments revealed at this level
   revealedCells: GridPosition[]; // cells to highlight
+  percentage: number; // percentage of total path revealed (25%, 50%, 75%, 100%)
 }
 
 // Core puzzle definition
@@ -58,6 +59,7 @@ export interface Puzzle {
   materials: Material[];
   entry: GridPosition; // laser entry point
   solution: GridPosition; // correct exit point
+  solutionPath: LaserPath; // complete laser path from entry to exit
   hints: HintPath[]; // precomputed hint data (4 hints)
   createdAt: Date;
   materialDensity: number; // percentage of grid filled with materials

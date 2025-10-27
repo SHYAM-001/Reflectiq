@@ -11,15 +11,15 @@ import {
   GridPosition,
   DailyPuzzleSet,
   HintPath,
+  LaserPath,
 } from '../types/puzzle.js';
 
-import { DIFFICULTY_CONFIGS, MATERIAL_PROPERTIES, GRID_UTILS } from '../physics/constants.js';
+import { DIFFICULTY_CONFIGS, MATERIAL_PROPERTIES } from '../physics/constants.js';
 
 import {
   isWithinBounds,
   getAllExitPositions,
   getRandomPosition,
-  getRandomBoundaryPosition,
   positionsEqual,
   positionToKey,
 } from '../physics/grid.js';
@@ -37,11 +37,11 @@ export class PuzzleGenerator {
   /**
    * Generate a complete daily puzzle set with Easy, Medium, and Hard difficulties
    */
-  public generateDailyPuzzles(date: string): DailyPuzzleSet {
+  public async generateDailyPuzzles(date: string): Promise<DailyPuzzleSet> {
     const puzzles = {
-      easy: this.createPuzzle('Easy', date),
-      medium: this.createPuzzle('Medium', date),
-      hard: this.createPuzzle('Hard', date),
+      easy: await this.createPuzzle('Easy', date),
+      medium: await this.createPuzzle('Medium', date),
+      hard: await this.createPuzzle('Hard', date),
     };
 
     return {
@@ -55,7 +55,7 @@ export class PuzzleGenerator {
   /**
    * Create a single puzzle for the specified difficulty
    */
-  public createPuzzle(difficulty: Difficulty, date: string): Puzzle {
+  public async createPuzzle(difficulty: Difficulty, date: string): Promise<Puzzle> {
     const config = DIFFICULTY_CONFIGS[difficulty];
     const puzzleId = `puzzle_${difficulty.toLowerCase()}_${date}`;
 
@@ -65,16 +65,23 @@ export class PuzzleGenerator {
     while (attempts < maxAttempts) {
       try {
         // Generate grid with materials
-        const { materials, entry, solution } = this.generatePuzzleGrid(
+        const { materials, entry } = this.generatePuzzleGrid(
           config.gridSize,
           config.materialDensity,
           config.allowedMaterials
         );
 
+        // Calculate the complete solution path
+        const solutionPath = await this.calculateSolutionPath(materials, entry, config.gridSize);
+
         // Validate the puzzle has exactly one solution
-        if (this.validatePuzzleSolution(materials, entry, solution, config.gridSize)) {
-          // Generate hint paths
-          const hints = this.generateHintPaths(materials, entry, solution, config.gridSize);
+        if (
+          solutionPath &&
+          solutionPath.exit &&
+          (await this.validatePuzzleSolution(materials, entry, solutionPath.exit, config.gridSize))
+        ) {
+          // Generate progressive hint paths from the complete solution
+          const hints = this.generateProgressiveHints(solutionPath);
 
           const puzzle: Puzzle = {
             id: puzzleId,
@@ -82,7 +89,8 @@ export class PuzzleGenerator {
             gridSize: config.gridSize,
             materials,
             entry,
-            solution,
+            solution: solutionPath.exit,
+            solutionPath,
             hints,
             createdAt: new Date(),
             materialDensity: this.calculateActualDensity(materials, config.gridSize),
@@ -107,7 +115,7 @@ export class PuzzleGenerator {
     gridSize: number,
     targetDensity: number,
     allowedMaterials: MaterialType[]
-  ): { materials: Material[]; entry: GridPosition; solution: GridPosition } {
+  ): { materials: Material[]; entry: GridPosition } {
     const totalCells = gridSize * gridSize;
     const targetMaterialCount = Math.floor(totalCells * targetDensity);
 
@@ -122,14 +130,7 @@ export class PuzzleGenerator {
       entry
     );
 
-    // Calculate solution by tracing laser path
-    const solution = this.calculateSolution(materials, entry, gridSize);
-
-    if (!solution) {
-      throw new Error('No valid solution found for generated puzzle');
-    }
-
-    return { materials, entry, solution };
+    return { materials, entry };
   }
 
   /**
@@ -142,10 +143,15 @@ export class PuzzleGenerator {
     const preferredPositions = boundaryPositions.filter(([x, y]) => x === 0 || y === 0);
 
     if (preferredPositions.length > 0) {
-      return preferredPositions[Math.floor(Math.random() * preferredPositions.length)];
+      const selected = preferredPositions[Math.floor(Math.random() * preferredPositions.length)];
+      if (selected) return selected;
     }
 
-    return boundaryPositions[Math.floor(Math.random() * boundaryPositions.length)];
+    const selected = boundaryPositions[Math.floor(Math.random() * boundaryPositions.length)];
+    if (!selected) {
+      throw new Error('No boundary positions available for entry point');
+    }
+    return selected;
   }
 
   /**
@@ -253,7 +259,11 @@ export class PuzzleGenerator {
     }
 
     // Fallback to first material
-    return allowedMaterials[0];
+    const fallback = allowedMaterials[0];
+    if (!fallback) {
+      throw new Error('No allowed materials provided');
+    }
+    return fallback;
   }
 
   /**
@@ -262,7 +272,8 @@ export class PuzzleGenerator {
   private generateMirrorAngle(): number {
     // Generate angles in 15-degree increments for cleaner reflections
     const angleIncrements = [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165];
-    return angleIncrements[Math.floor(Math.random() * angleIncrements.length)];
+    const selected = angleIncrements[Math.floor(Math.random() * angleIncrements.length)];
+    return selected ?? 45; // Default to 45 degrees if undefined
   }
 
   /**
@@ -274,61 +285,108 @@ export class PuzzleGenerator {
   }
 
   /**
-   * Calculate the solution by tracing the laser path
+   * Calculate the complete solution path by tracing the laser
    */
-  private calculateSolution(
+  private async calculateSolutionPath(
     materials: Material[],
     entry: GridPosition,
     gridSize: number
-  ): GridPosition | null {
-    // Import ReflectionEngine dynamically to avoid circular dependencies
-    const { ReflectionEngine } = require('./ReflectionEngine.js');
-    const reflectionEngine = ReflectionEngine.getInstance();
+  ): Promise<LaserPath | null> {
+    try {
+      // Import ReflectionEngine dynamically to avoid circular dependencies
+      const { ReflectionEngine } = await import('./ReflectionEngine.js');
+      const reflectionEngine = ReflectionEngine.getInstance();
 
-    // Trace laser path from entry point
-    const laserPath = reflectionEngine.traceLaserPath(materials, entry, gridSize);
-
-    // Return the exit point
-    return reflectionEngine.calculateExit(laserPath);
+      // Trace complete laser path from entry point
+      return reflectionEngine.traceLaserPath(materials, entry, gridSize);
+    } catch (error) {
+      console.error('Error calculating solution path:', error);
+      return null;
+    }
   }
 
   /**
    * Validate that the puzzle has exactly one valid solution
    */
-  private validatePuzzleSolution(
+  private async validatePuzzleSolution(
     materials: Material[],
     entry: GridPosition,
     solution: GridPosition,
     gridSize: number
-  ): boolean {
+  ): Promise<boolean> {
     if (!solution || !isWithinBounds(solution, gridSize)) {
       return false;
     }
 
-    // Import ReflectionEngine dynamically to avoid circular dependencies
-    const { ReflectionEngine } = require('./ReflectionEngine.js');
-    const reflectionEngine = ReflectionEngine.getInstance();
+    try {
+      // Import ReflectionEngine dynamically to avoid circular dependencies
+      const { ReflectionEngine } = await import('./ReflectionEngine.js');
+      const reflectionEngine = ReflectionEngine.getInstance();
 
-    // Validate that the calculated solution matches the expected solution
-    return reflectionEngine.validateSolution(materials, entry, solution, gridSize);
+      // Validate that the calculated solution matches the expected solution
+      return reflectionEngine.validateSolution(materials, entry, solution, gridSize);
+    } catch (error) {
+      console.error('Error validating puzzle solution:', error);
+      return false;
+    }
   }
 
   /**
-   * Generate hint paths for the puzzle (placeholder)
+   * Generate progressive hints from the complete solution path
    */
-  private generateHintPaths(
-    materials: Material[],
-    entry: GridPosition,
-    solution: GridPosition,
-    gridSize: number
-  ): HintPath[] {
-    // TODO: Implement actual hint path generation
-    // For now, return empty hint paths
-    return [
-      { quadrant: 1, segments: [], revealedCells: [] },
-      { quadrant: 2, segments: [], revealedCells: [] },
-      { quadrant: 3, segments: [], revealedCells: [] },
-      { quadrant: 4, segments: [], revealedCells: [] },
+  private generateProgressiveHints(solutionPath: LaserPath): HintPath[] {
+    const hints: HintPath[] = [];
+    const totalSegments = solutionPath.segments.length;
+
+    if (totalSegments === 0) {
+      // No path segments, return empty hints
+      return [
+        { hintLevel: 1, segments: [], revealedCells: [], percentage: 25 },
+        { hintLevel: 2, segments: [], revealedCells: [], percentage: 50 },
+        { hintLevel: 3, segments: [], revealedCells: [], percentage: 75 },
+        { hintLevel: 4, segments: [], revealedCells: [], percentage: 100 },
+      ];
+    }
+
+    // Calculate how many segments to reveal at each hint level
+    const segmentsPerHint = [
+      Math.ceil(totalSegments * 0.25), // 25% for hint 1
+      Math.ceil(totalSegments * 0.5), // 50% for hint 2
+      Math.ceil(totalSegments * 0.75), // 75% for hint 3
+      totalSegments, // 100% for hint 4
     ];
+
+    for (let hintLevel = 1; hintLevel <= 4; hintLevel++) {
+      const segmentsToReveal = segmentsPerHint[hintLevel - 1] || 0;
+      const segments = solutionPath.segments.slice(0, segmentsToReveal);
+
+      // Extract all unique cells from the revealed segments
+      const revealedCells: GridPosition[] = [];
+      const cellSet = new Set<string>();
+
+      for (const segment of segments) {
+        const startKey = positionToKey(segment.start);
+        const endKey = positionToKey(segment.end);
+
+        if (!cellSet.has(startKey)) {
+          revealedCells.push(segment.start);
+          cellSet.add(startKey);
+        }
+
+        if (!cellSet.has(endKey)) {
+          revealedCells.push(segment.end);
+          cellSet.add(endKey);
+        }
+      }
+
+      hints.push({
+        hintLevel: hintLevel as 1 | 2 | 3 | 4,
+        segments,
+        revealedCells,
+        percentage: (segmentsToReveal / totalSegments) * 100,
+      });
+    }
+
+    return hints;
   }
 }

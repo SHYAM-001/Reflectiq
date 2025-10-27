@@ -5,7 +5,7 @@
 
 import { redis } from '@devvit/web/server';
 import { Puzzle, DailyPuzzleSet, Difficulty } from '../../shared/types/puzzle.js';
-import { GetPuzzleResponse, ApiResponse } from '../../shared/types/api.js';
+import { GetPuzzleResponse } from '../../shared/types/api.js';
 import { PuzzleGenerator } from '../../shared/puzzle/PuzzleGenerator.js';
 
 export class PuzzleService {
@@ -28,7 +28,7 @@ export class PuzzleService {
    */
   public async getCurrentPuzzle(difficulty: Difficulty): Promise<GetPuzzleResponse> {
     try {
-      const today = new Date().toISOString().split('T')[0];
+      const today = new Date().toISOString().split('T')[0] as string;
       const puzzleSet = await this.getDailyPuzzleSet(today);
 
       if (!puzzleSet) {
@@ -92,7 +92,8 @@ export class PuzzleService {
       const puzzleData = JSON.stringify(puzzleSet);
 
       // Store with 48-hour expiration (allows for timezone differences)
-      await redis.setex(key, 48 * 60 * 60, puzzleData);
+      await redis.set(key, puzzleData);
+      await redis.expire(key, 48 * 60 * 60);
 
       console.log(`Stored daily puzzle set for ${puzzleSet.date}`);
     } catch (error) {
@@ -108,7 +109,7 @@ export class PuzzleService {
     try {
       console.log(`Generating daily puzzles for ${date}`);
 
-      const puzzleSet = this.puzzleGenerator.generateDailyPuzzles(date);
+      const puzzleSet = await this.puzzleGenerator.generateDailyPuzzles(date);
 
       // Store in Redis cache
       await this.storeDailyPuzzleSet(puzzleSet);
@@ -191,6 +192,7 @@ export class PuzzleService {
 
   /**
    * Cleanup old puzzles (for maintenance)
+   * Note: Devvit Redis doesn't support keys() command, so we'll clean up specific known keys
    */
   public async cleanupOldPuzzles(daysToKeep: number = 7): Promise<number> {
     try {
@@ -198,17 +200,22 @@ export class PuzzleService {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
 
-      // Get all puzzle keys
-      const keys = await redis.keys('reflectiq:puzzles:*');
+      // Clean up known old puzzle keys by date
+      for (let i = daysToKeep; i <= 30; i++) {
+        const oldDate = new Date();
+        oldDate.setDate(oldDate.getDate() - i);
+        const dateStr = oldDate.toISOString().split('T')[0];
+        const key = `reflectiq:puzzles:${dateStr}`;
 
-      for (const key of keys) {
-        const dateStr = key.split(':')[2];
-        const puzzleDate = new Date(dateStr);
-
-        if (puzzleDate < cutoffDate) {
-          await redis.del(key);
-          cleanedCount++;
-          console.log(`Cleaned up old puzzle: ${key}`);
+        try {
+          const exists = await redis.exists(key);
+          if (exists) {
+            await redis.del(key);
+            cleanedCount++;
+            console.log(`Cleaned up old puzzle: ${key}`);
+          }
+        } catch (error) {
+          console.warn(`Failed to cleanup key ${key}:`, error);
         }
       }
 

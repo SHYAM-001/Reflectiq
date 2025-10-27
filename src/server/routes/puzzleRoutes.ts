@@ -132,7 +132,8 @@ router.post('/start', async (req, res) => {
     // Store session in Redis with 1 hour expiration
     const sessionKey = `reflectiq:sessions:${sessionId}`;
     try {
-      await redis.setex(sessionKey, 3600, JSON.stringify(sessionData));
+      await redis.set(sessionKey, JSON.stringify(sessionData));
+      await redis.expire(sessionKey, 3600);
     } catch (error) {
       console.error('Failed to store session:', error);
       const response: StartPuzzleResponse = {
@@ -280,7 +281,8 @@ router.post('/hint', async (req, res) => {
     sessionData.currentHintLevel = hintNumber;
 
     try {
-      await redis.setex(sessionKey, 3600, JSON.stringify(sessionData));
+      await redis.set(sessionKey, JSON.stringify(sessionData));
+      await redis.expire(sessionKey, 3600);
     } catch (error) {
       console.warn('Failed to update session:', error);
     }
@@ -483,7 +485,8 @@ router.post('/submit', async (req, res) => {
     // Mark session as submitted
     sessionData.status = 'submitted';
     try {
-      await redis.setex(sessionKey, 3600, JSON.stringify(sessionData));
+      await redis.set(sessionKey, JSON.stringify(sessionData));
+      await redis.expire(sessionKey, 3600);
     } catch (error) {
       console.warn('Failed to update session status:', error);
     }
