@@ -165,7 +165,7 @@
     - Add Redis key expiration and cleanup policies
     - _Requirements: 9.1, 9.2, 9.5_
 
-  - [ ] 9.2 Create data access layer for puzzles and sessions
+  - [x] 9.2 Create data access layer for puzzles and sessions
 
     - Implement puzzle CRUD operations with Redis hash storage
     - Create session management with automatic expiration

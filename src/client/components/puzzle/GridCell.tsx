@@ -46,7 +46,7 @@ export const GridCell = ({ row, col, material, isEntry, isExit, isOnLaserPath }:
         'relative aspect-square border border-border/30 transition-all duration-300 hover:border-primary/50 cursor-pointer group',
         material && getMaterialColor(material.type),
         isEntry && 'ring-2 ring-green-500 bg-green-100/20',
-        isExit && 'ring-2 ring-red-500 bg-red-100/20',
+        isExit && 'ring-2 ring-red-500 bg-red-100/20 animate-pulse shadow-lg shadow-red-500/30',
         !material && 'bg-card/20 backdrop-blur-sm',
         isOnLaserPath && 'ring-1 ring-red-400 bg-red-100/20 animate-pulse'
       )}
@@ -67,6 +67,14 @@ export const GridCell = ({ row, col, material, isEntry, isExit, isOnLaserPath }:
       {isEntry && (
         <div className="absolute inset-0 flex items-center justify-center">
           <div className="w-2 h-2 bg-laser rounded-full animate-glow-pulse" />
+        </div>
+      )}
+
+      {/* Exit indicator */}
+      {isExit && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse shadow-lg shadow-red-500/50" />
+          <div className="absolute w-6 h-6 border-2 border-red-500 rounded-full animate-ping" />
         </div>
       )}
 

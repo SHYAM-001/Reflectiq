@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import EnhancedApiService, { ApiError } from '../services/enhanced-api';
 import { useErrorHandler } from '../components/ErrorBoundary';
+import { setAppContext } from '../utils/navigation';
 import {
   Puzzle,
   SessionData,
@@ -105,6 +106,12 @@ export const useGameState = () => {
         });
         return;
       }
+
+      // Set the app context for navigation
+      setAppContext({
+        postId: appData.postId,
+        subreddit: appData.subreddit,
+      });
 
       setState((prev) => ({
         ...prev,

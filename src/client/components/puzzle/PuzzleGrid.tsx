@@ -5,10 +5,14 @@ import { useMemo } from 'react';
 interface PuzzleGridProps {
   puzzle: Puzzle;
   hintPaths: HintPath[];
+  hintsUsed?: number;
 }
 
-export const PuzzleGrid = ({ puzzle, hintPaths }: PuzzleGridProps) => {
+export const PuzzleGrid = ({ puzzle, hintPaths, hintsUsed = 0 }: PuzzleGridProps) => {
   const gridSize = puzzle.gridSize;
+
+  // Only show exit cell when solution is 100% exposed (all 4 hints used)
+  const isSolutionFullyExposed = hintsUsed >= 4;
 
   const getMaterialAtPosition = (row: number, col: number) => {
     return puzzle.materials.find((m) => m.position[0] === row && m.position[1] === col);
@@ -44,7 +48,8 @@ export const PuzzleGrid = ({ puzzle, hintPaths }: PuzzleGridProps) => {
           Array.from({ length: gridSize }, (_, col) => {
             const material = getMaterialAtPosition(row, col);
             const isEntry = puzzle.entry[0] === row && puzzle.entry[1] === col;
-            const isExit = puzzle.solution[0] === row && puzzle.solution[1] === col;
+            const isExit =
+              isSolutionFullyExposed && puzzle.solution[0] === row && puzzle.solution[1] === col;
             const isOnPath = isOnLaserPath(row, col);
 
             return (

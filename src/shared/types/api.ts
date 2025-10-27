@@ -21,6 +21,7 @@ export type InitResponse = {
   postId: string;
   count: number;
   username: string;
+  subreddit?: string;
 };
 
 export type IncrementResponse = {

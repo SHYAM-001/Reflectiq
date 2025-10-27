@@ -2,6 +2,7 @@ import { Button } from './ui/button';
 import { MessageCircle, Clock, Lightbulb, Copy, CheckCircle } from 'lucide-react';
 import { useState } from 'react';
 import { Puzzle, GridPosition } from '../types/api';
+import { navigateToCommentWithText } from '../utils/navigation';
 
 interface SubmissionScreenProps {
   puzzle: Puzzle;
@@ -41,6 +42,17 @@ export const SubmissionScreen = ({
       setTimeout(() => setCopied(false), 2000);
     } catch (error) {
       console.error('Failed to copy to clipboard:', error);
+    }
+  };
+
+  const handleNavigateToComment = async () => {
+    try {
+      await navigateToCommentWithText(commentText);
+    } catch (error) {
+      console.error('Failed to navigate to comment:', error);
+      // Fallback: just copy to clipboard and show instructions
+      await handleCopyComment();
+      alert('Please paste the copied text as a comment on the Reddit post.');
     }
   };
 
@@ -125,11 +137,11 @@ export const SubmissionScreen = ({
         {/* Actions */}
         <div className="flex flex-col gap-3">
           <Button
-            onClick={() => window.open('https://reddit.com', '_blank')}
+            onClick={handleNavigateToComment}
             className="w-full bg-gradient-primary text-primary-foreground font-poppins font-semibold py-3 rounded-xl shadow-glow-primary hover:scale-105 transition-all duration-300"
           >
             <MessageCircle className="mr-2 h-4 w-4" />
-            Open Reddit to Comment
+            Submit Comment on Reddit
           </Button>
 
           <Button

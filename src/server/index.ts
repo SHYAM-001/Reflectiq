@@ -82,7 +82,7 @@ async function setDataRetentionPolicies(date: string): Promise<void> {
 router.get<{ postId: string }, InitResponse | { status: string; message: string }>(
   '/api/init',
   async (_req, res): Promise<void> => {
-    const { postId } = context;
+    const { postId, subredditName } = context;
 
     if (!postId) {
       console.error('API Init Error: postId not found in devvit context');
@@ -104,6 +104,7 @@ router.get<{ postId: string }, InitResponse | { status: string; message: string 
         postId: postId,
         count: count ? parseInt(count) : 0,
         username: username ?? 'anonymous',
+        subreddit: subredditName,
       });
     } catch (error) {
       console.error(`API Init Error for post ${postId}:`, error);

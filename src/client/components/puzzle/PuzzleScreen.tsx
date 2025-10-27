@@ -7,6 +7,7 @@ import { AnswerInput } from './AnswerInput';
 import { Puzzle, SessionData, HintPath, GridPosition } from '../../types/api';
 import { Send } from 'lucide-react';
 import { toast } from 'sonner';
+import { navigateToCommentWithText } from '../../utils/navigation';
 
 interface PuzzleScreenProps {
   puzzle: Puzzle;
@@ -31,7 +32,7 @@ export const PuzzleScreen = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<GridPosition | null>(null);
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     if (!selectedAnswer) {
       toast.error('Please select an exit cell first');
       return;
@@ -40,16 +41,27 @@ export const PuzzleScreen = ({
     // Format the answer for Reddit comment submission
     const letter = String.fromCharCode(65 + selectedAnswer[0]);
     const number = selectedAnswer[1] + 1;
-    const formattedAnswer = `${letter}${number}`;
+    const formattedAnswer = `Exit: ${letter}${number}`;
 
-    // Stop the timer and show submission instructions
+    // Stop the timer first
     onSubmitAnswer(selectedAnswer, currentTime);
 
-    // Show instructions for Reddit comment submission
-    toast.success(`Time stopped! Submit your answer as a comment: "Exit: ${formattedAnswer}"`, {
-      duration: 10000,
-      description: 'Click this post to open Reddit and submit your answer as a comment',
+    // Show success message and navigate to Reddit
+    toast.success('Time stopped! Navigating to Reddit to submit your answer...', {
+      duration: 3000,
     });
+
+    // Navigate to Reddit with the comment text
+    try {
+      await navigateToCommentWithText(formattedAnswer);
+    } catch (error) {
+      console.error('Navigation failed:', error);
+      // Fallback: show instructions
+      toast.info(`Please submit this as a comment: "${formattedAnswer}"`, {
+        duration: 8000,
+        description: 'Copy the text above and paste it as a comment on the Reddit post',
+      });
+    }
   };
 
   return (
@@ -70,7 +82,7 @@ export const PuzzleScreen = ({
 
       {/* Main Grid Area */}
       <div className="flex-1 flex items-center justify-center p-4">
-        <PuzzleGrid puzzle={puzzle} hintPaths={hintPaths} />
+        <PuzzleGrid puzzle={puzzle} hintPaths={hintPaths} hintsUsed={hintsUsed} />
       </div>
 
       {/* Bottom Bar */}
