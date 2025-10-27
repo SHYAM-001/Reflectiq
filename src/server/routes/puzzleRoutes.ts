@@ -1,11 +1,22 @@
 /**
  * Puzzle API Routes for ReflectIQ
  * Handles puzzle retrieval, session management, hints, and submissions
- * Following Devvit Web server patterns
+ * Enhanced with comprehensive error handling and validation
  */
 
 import { Router } from 'express';
-import { context, redis } from '@devvit/web/server';
+import { context } from '@devvit/web/server';
+import { redisClient } from '../utils/redisClient.js';
+import PuzzleRepository from '../data/PuzzleRepository.js';
+import SessionRepository from '../data/SessionRepository.js';
+import {
+  asyncHandler,
+  sendErrorResponse,
+  sendSuccessResponse,
+  validateRequired,
+  checkRateLimit,
+  withRedisRetry,
+} from '../utils/errorHandler.js';
 import {
   GetPuzzleRequest,
   GetPuzzleResponse,
@@ -30,71 +41,77 @@ import { HINT_CONFIG, DIFFICULTY_CONFIGS } from '../../shared/physics/constants.
 
 const router = Router();
 
+// Initialize repositories
+const puzzleRepository = PuzzleRepository.getInstance();
+const sessionRepository = SessionRepository.getInstance();
+
 /**
  * GET /api/puzzle/current?difficulty=Easy|Medium|Hard
  * Retrieve the current day's puzzle for the specified difficulty
  * Requirements: 11.1, 9.1, 9.2
  */
-router.get('/current', async (req, res) => {
-  try {
+router.get(
+  '/current',
+  asyncHandler(async (req, res) => {
     const difficulty = req.query.difficulty as Difficulty;
 
     // Validate difficulty parameter
     if (!difficulty || !['Easy', 'Medium', 'Hard'].includes(difficulty)) {
-      const response: GetPuzzleResponse = {
-        success: false,
-        error: {
-          type: 'INVALID_ANSWER',
-          message: 'Difficulty must be Easy, Medium, or Hard',
-        },
-        timestamp: new Date(),
-      };
-      return res.status(400).json(response);
+      return sendErrorResponse(res, 'VALIDATION_ERROR', 'Difficulty must be Easy, Medium, or Hard');
+    }
+
+    // Rate limiting per user
+    const userId = context.userId || req.ip || 'anonymous';
+    const rateLimit = checkRateLimit(`puzzle:${userId}`, 30, 60000); // 30 requests per minute
+
+    if (!rateLimit.allowed) {
+      return sendErrorResponse(
+        res,
+        'RATE_LIMITED',
+        `Too many requests. Try again in ${Math.ceil((rateLimit.resetTime - Date.now()) / 1000)} seconds`
+      );
     }
 
     const puzzleService = PuzzleService.getInstance();
     const response = await puzzleService.getCurrentPuzzle(difficulty);
 
     if (response.success) {
-      res.json(response);
+      sendSuccessResponse(res, response.data);
     } else {
-      res.status(404).json(response);
+      const statusCode = response.error?.type === 'PUZZLE_NOT_FOUND' ? 404 : 500;
+      res.status(statusCode).json(response);
     }
-  } catch (error) {
-    console.error('Error retrieving puzzle:', error);
-    const response: GetPuzzleResponse = {
-      success: false,
-      error: {
-        type: 'REDIS_ERROR',
-        message: 'Failed to retrieve puzzle',
-        details: error instanceof Error ? error.message : 'Unknown error',
-      },
-      timestamp: new Date(),
-    };
-    res.status(500).json(response);
-  }
-});
+  })
+);
 
 /**
  * POST /api/puzzle/start
  * Initialize a new puzzle session and start the timer
  * Requirements: 11.2, 4.1, 4.4, 9.2
  */
-router.post('/start', async (req, res) => {
-  try {
+router.post(
+  '/start',
+  asyncHandler(async (req, res) => {
     const { puzzleId, userId }: StartPuzzleRequest = req.body;
 
-    // Validate request
-    if (!puzzleId || !userId) {
-      const response: StartPuzzleResponse = {
-        success: false,
-        error: {
-          type: 'INVALID_ANSWER',
-          message: 'puzzleId and userId are required',
-        },
-        timestamp: new Date(),
-      };
-      return res.status(400).json(response);
+    // Validate required fields
+    const validation = validateRequired(req.body, ['puzzleId', 'userId']);
+    if (!validation.isValid) {
+      return sendErrorResponse(
+        res,
+        'VALIDATION_ERROR',
+        `Missing required fields: ${validation.missingFields.join(', ')}`
+      );
+    }
+
+    // Rate limiting per user
+    const rateLimit = checkRateLimit(`start:${userId}`, 10, 60000); // 10 starts per minute
+    if (!rateLimit.allowed) {
+      return sendErrorResponse(
+        res,
+        'RATE_LIMITED',
+        'Too many session starts. Please wait before starting a new game'
+      );
     }
 
     // Generate session ID
@@ -103,15 +120,7 @@ router.post('/start', async (req, res) => {
     // Extract difficulty from puzzle ID (format: puzzle_easy_2024-01-01)
     const difficultyMatch = puzzleId.match(/puzzle_(easy|medium|hard)_/);
     if (!difficultyMatch) {
-      const response: StartPuzzleResponse = {
-        success: false,
-        error: {
-          type: 'INVALID_ANSWER',
-          message: 'Invalid puzzle ID format',
-        },
-        timestamp: new Date(),
-      };
-      return res.status(400).json(response);
+      return sendErrorResponse(res, 'VALIDATION_ERROR', 'Invalid puzzle ID format');
     }
 
     const difficulty = (difficultyMatch[1].charAt(0).toUpperCase() +
@@ -129,45 +138,23 @@ router.post('/start', async (req, res) => {
       currentHintLevel: 0,
     };
 
-    // Store session in Redis with 1 hour expiration
+    // Store session in Redis with 1 hour expiration and retry logic
     const sessionKey = `reflectiq:sessions:${sessionId}`;
-    try {
-      await redis.set(sessionKey, JSON.stringify(sessionData));
-      await redis.expire(sessionKey, 3600);
-    } catch (error) {
-      console.error('Failed to store session:', error);
-      const response: StartPuzzleResponse = {
-        success: false,
-        error: {
-          type: 'REDIS_ERROR',
-          message: 'Failed to create session',
-        },
-        timestamp: new Date(),
-      };
-      return res.status(500).json(response);
-    }
 
-    const response: StartPuzzleResponse = {
-      success: true,
-      data: sessionData,
-      timestamp: new Date(),
-    };
-
-    res.json(response);
-  } catch (error) {
-    console.error('Error starting puzzle session:', error);
-    const response: StartPuzzleResponse = {
-      success: false,
-      error: {
-        type: 'REDIS_ERROR',
-        message: 'Failed to start puzzle session',
-        details: error instanceof Error ? error.message : 'Unknown error',
+    await withRedisRetry(
+      async () => {
+        await redis.set(sessionKey, JSON.stringify(sessionData));
+        await redis.expire(sessionKey, 3600);
       },
-      timestamp: new Date(),
-    };
-    res.status(500).json(response);
-  }
-});
+      async () => {
+        // Fallback: continue without storing session (degraded mode)
+        console.warn(`Failed to store session ${sessionId} - continuing in degraded mode`);
+      }
+    );
+
+    sendSuccessResponse(res, sessionData);
+  })
+);
 
 /**
  * POST /api/puzzle/hint

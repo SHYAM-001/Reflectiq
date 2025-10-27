@@ -149,7 +149,8 @@
     - Implement API endpoint error responses with proper HTTP status codes
     - _Requirements: 9.4, 11.6_
 
-  - [ ] 8.2 Build client-side error boundaries
+  - [x] 8.2 Build client-side error boundaries
+
     - Create React error boundaries for puzzle loading failures
     - Add user-friendly error messages and recovery options
     - Implement offline state handling and retry mechanisms
@@ -157,7 +158,7 @@
 
 - [ ] 9. Implement data persistence and Redis integration
 
-  - [ ] 9.1 Set up Redis client and connection management
+  - [x] 9.1 Set up Redis client and connection management
 
     - Configure Redis client with Devvit Web server integration
     - Implement connection pooling and error handling

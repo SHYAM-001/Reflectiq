@@ -4,6 +4,7 @@ import { LoadingScreen } from '../components/LoadingScreen';
 import { ErrorScreen } from '../components/ErrorScreen';
 import { SubmissionScreen } from '../components/SubmissionScreen';
 import { useGameState } from '../hooks/use-game-state';
+import { withErrorBoundary } from '../components/ErrorBoundary';
 
 const Index = () => {
   const gameState = useGameState();
@@ -17,6 +18,8 @@ const Index = () => {
         return (
           <ErrorScreen
             error={gameState.error || 'An unknown error occurred'}
+            errorType={gameState.errorType}
+            retryCount={gameState.retryCount}
             onRetry={gameState.retryGame}
             onReset={gameState.resetGame}
           />
@@ -58,4 +61,4 @@ const Index = () => {
   return renderScreen();
 };
 
-export default Index;
+export default withErrorBoundary(Index);

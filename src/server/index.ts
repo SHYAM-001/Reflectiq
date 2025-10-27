@@ -1,11 +1,13 @@
 import express from 'express';
 import { InitResponse, IncrementResponse, DecrementResponse } from '../shared/types/api';
-import { redis, reddit, createServer, context, getServerPort } from '@devvit/web/server';
+import { reddit, createServer, context, getServerPort } from '@devvit/web/server';
+import { redisClient } from './utils/redisClient.js';
 import { createPost } from './core/post';
 import { PuzzleService } from './services/PuzzleService.js';
 import { LeaderboardService } from './services/LeaderboardService.js';
 import puzzleRoutes from './routes/puzzleRoutes.js';
 import leaderboardRoutes from './routes/leaderboardRoutes.js';
+import healthRoutes from './routes/healthRoutes.js';
 
 const app = express();
 
@@ -36,9 +38,8 @@ async function archiveCompletedPuzzleData(
     };
 
     // Store archive data with 90-day retention
-    const archiveKey = `reflectiq:archive:${date}`;
-    await redis.set(archiveKey, JSON.stringify(archiveData));
-    await redis.expire(archiveKey, 90 * 24 * 60 * 60);
+    const archiveKey = `archive:${date}`;
+    await redisClient.set(archiveKey, JSON.stringify(archiveData), { ttl: 90 * 24 * 60 * 60 });
 
     console.log(`Archived summary data for ${date} with 90-day retention`);
   } catch (error) {
@@ -54,18 +55,18 @@ async function setDataRetentionPolicies(date: string): Promise<void> {
 
     // Set expiration on various data types for the date
     const keysToExpire = [
-      `reflectiq:puzzles:${date}`,
-      `reflectiq:leaderboard:daily:${date}`,
-      `reflectiq:submissions:puzzle_easy_${date}`,
-      `reflectiq:submissions:puzzle_medium_${date}`,
-      `reflectiq:submissions:puzzle_hard_${date}`,
+      `puzzles:${date}`,
+      `leaderboard:daily:${date}`,
+      `submissions:puzzle_easy_${date}`,
+      `submissions:puzzle_medium_${date}`,
+      `submissions:puzzle_hard_${date}`,
     ];
 
     for (const key of keysToExpire) {
       try {
-        const exists = await redis.exists(key);
+        const exists = await redisClient.exists(key);
         if (exists) {
-          await redis.expire(key, retentionSeconds);
+          await redisClient.expire(key, retentionSeconds);
           console.log(`Set ${retentionDays}-day expiration on ${key}`);
         }
       } catch (error) {
@@ -94,7 +95,7 @@ router.get<{ postId: string }, InitResponse | { status: string; message: string 
 
     try {
       const [count, username] = await Promise.all([
-        redis.get('count'),
+        redisClient.get('count'),
         reddit.getCurrentUsername(),
       ]);
 
@@ -128,7 +129,7 @@ router.post<{ postId: string }, IncrementResponse | { status: string; message: s
     }
 
     res.json({
-      count: await redis.incrBy('count', 1),
+      count: await redisClient.incrBy('count', 1),
       postId,
       type: 'increment',
     });
@@ -148,7 +149,7 @@ router.post<{ postId: string }, DecrementResponse | { status: string; message: s
     }
 
     res.json({
-      count: await redis.incrBy('count', -1),
+      count: await redisClient.incrBy('count', -1),
       postId,
       type: 'decrement',
     });
@@ -158,6 +159,7 @@ router.post<{ postId: string }, DecrementResponse | { status: string; message: s
 // API Routes
 router.use('/api/puzzle', puzzleRoutes);
 router.use('/api/leaderboard', leaderboardRoutes);
+router.use('/api', healthRoutes);
 
 router.post('/internal/on-app-install', async (_req, res): Promise<void> => {
   try {
@@ -630,9 +632,8 @@ router.post('/internal/scheduler/weekly-maintenance', async (_req, res): Promise
     };
 
     // Store maintenance report for monitoring
-    const reportKey = `reflectiq:maintenance:${new Date().toISOString().split('T')[0]}`;
-    await redis.set(reportKey, JSON.stringify(maintenanceReport));
-    await redis.expire(reportKey, 30 * 24 * 60 * 60);
+    const reportKey = `maintenance:${new Date().toISOString().split('T')[0]}`;
+    await redisClient.set(reportKey, JSON.stringify(maintenanceReport), { ttl: 30 * 24 * 60 * 60 });
 
     console.log(`Weekly maintenance completed in ${maintenanceReport.executionTime}ms`);
 

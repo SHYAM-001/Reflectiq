@@ -5,7 +5,8 @@
 
 import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
-import ApiService from '../services/api';
+import EnhancedApiService, { ApiError } from '../services/enhanced-api';
+import { useErrorHandler } from '../components/ErrorBoundary';
 import {
   Puzzle,
   SessionData,
@@ -44,6 +45,8 @@ interface GameStateData {
 
   // Error handling
   error: string | null;
+  errorType: ApiError['type'] | null;
+  retryCount: number;
 }
 
 export const useGameState = () => {
@@ -62,9 +65,12 @@ export const useGameState = () => {
     scoreResult: null,
     leaderboardPosition: null,
     error: null,
+    errorType: null,
+    retryCount: 0,
   });
 
-  const apiService = ApiService.getInstance();
+  const apiService = EnhancedApiService.getInstance();
+  const { handleError } = useErrorHandler();
 
   // Initialize app on mount
   useEffect(() => {
@@ -73,29 +79,63 @@ export const useGameState = () => {
 
   const initializeApp = async () => {
     try {
-      setState((prev) => ({ ...prev, gameState: 'loading' }));
+      setState((prev) => ({
+        ...prev,
+        gameState: 'loading',
+        error: null,
+        errorType: null,
+        retryCount: 0,
+      }));
 
       const appData = await apiService.initializeApp();
+
+      // Handle offline initialization
+      if (appData.offline) {
+        setState((prev) => ({
+          ...prev,
+          appData: { ...appData, username: 'offline_user' },
+          gameState: 'menu',
+          error: null,
+          errorType: null,
+        }));
+
+        toast.info('Running in offline mode', {
+          description: 'Some features may be limited.',
+          duration: 4000,
+        });
+        return;
+      }
 
       setState((prev) => ({
         ...prev,
         appData,
         gameState: 'menu',
         error: null,
+        errorType: null,
+        retryCount: 0,
       }));
     } catch (error) {
-      console.error('Failed to initialize app:', error);
+      const apiError = error as ApiError;
+      handleError(new Error(apiError.message), 'App Initialization');
+
       setState((prev) => ({
         ...prev,
         gameState: 'error',
-        error: 'Failed to initialize app. Please refresh and try again.',
+        error: apiError.message || 'Failed to initialize app. Please refresh and try again.',
+        errorType: apiError.type,
+        retryCount: prev.retryCount + 1,
       }));
     }
   };
 
   const startGame = async () => {
     try {
-      setState((prev) => ({ ...prev, gameState: 'loading' }));
+      setState((prev) => ({
+        ...prev,
+        gameState: 'loading',
+        error: null,
+        errorType: null,
+      }));
 
       // Get current puzzle (difficulty will be determined by the post context)
       // For now, we'll default to Easy, but this should come from the post metadata
@@ -133,17 +173,22 @@ export const useGameState = () => {
         scoreResult: null,
         leaderboardPosition: null,
         error: null,
+        errorType: null,
+        retryCount: 0,
       }));
 
       toast.success(`${puzzle.difficulty} puzzle loaded! Timer started.`);
     } catch (error) {
-      console.error('Failed to start game:', error);
+      const apiError = error as ApiError;
+      handleError(new Error(apiError.message), 'Game Start');
+
       setState((prev) => ({
         ...prev,
         gameState: 'error',
-        error: error instanceof Error ? error.message : 'Failed to start game',
+        error: apiError.message || 'Failed to start game',
+        errorType: apiError.type,
+        retryCount: prev.retryCount + 1,
       }));
-      toast.error('Failed to start game. Please try again.');
     }
   };
 
@@ -176,8 +221,13 @@ export const useGameState = () => {
         description: `Score multiplier now: ${scoreMultiplier.toFixed(1)}x`,
       });
     } catch (error) {
-      console.error('Failed to get hint:', error);
-      toast.error('Failed to get hint. Please try again.');
+      const apiError = error as ApiError;
+      handleError(new Error(apiError.message), 'Hint Request');
+
+      // Don't show generic error toast if it's a validation error (already handled by API service)
+      if (apiError.type !== 'VALIDATION_ERROR') {
+        toast.error('Failed to get hint. Please try again.');
+      }
     }
   };
 
@@ -223,6 +273,8 @@ export const useGameState = () => {
       scoreResult: null,
       leaderboardPosition: null,
       error: null,
+      errorType: null,
+      retryCount: 0,
     }));
   };
 

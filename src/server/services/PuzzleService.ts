@@ -1,12 +1,20 @@
 /**
  * Puzzle Service for ReflectIQ
  * Handles puzzle retrieval, caching, and daily puzzle management
+ * Enhanced with comprehensive error handling and Redis retry logic
  */
 
 import { redis } from '@devvit/web/server';
 import { Puzzle, DailyPuzzleSet, Difficulty } from '../../shared/types/puzzle.js';
 import { GetPuzzleResponse } from '../../shared/types/api.js';
 import { PuzzleGenerator } from '../../shared/puzzle/PuzzleGenerator.js';
+import {
+  withRedisRetry,
+  createErrorResponse,
+  createSuccessResponse,
+  ReflectIQErrorType,
+} from '../utils/errorHandler.js';
+import { createBackupPuzzle } from '../utils/backupPuzzles.js';
 
 export class PuzzleService {
   private static instance: PuzzleService;
@@ -24,82 +32,106 @@ export class PuzzleService {
   }
 
   /**
-   * Get current day's puzzle by difficulty
+   * Get current day's puzzle by difficulty with comprehensive error handling
    */
   public async getCurrentPuzzle(difficulty: Difficulty): Promise<GetPuzzleResponse> {
     try {
       const today = new Date().toISOString().split('T')[0] as string;
+
+      // Validate difficulty parameter
+      if (!['Easy', 'Medium', 'Hard'].includes(difficulty)) {
+        return createErrorResponse('VALIDATION_ERROR', `Invalid difficulty: ${difficulty}`);
+      }
+
       const puzzleSet = await this.getDailyPuzzleSet(today);
 
       if (!puzzleSet) {
         // Generate puzzles if they don't exist
-        const newPuzzleSet = await this.generateDailyPuzzles(today);
-        const puzzle = this.getPuzzleFromSet(newPuzzleSet, difficulty);
+        try {
+          const newPuzzleSet = await this.generateDailyPuzzles(today);
+          const puzzle = this.getPuzzleFromSet(newPuzzleSet, difficulty);
+          return createSuccessResponse(puzzle);
+        } catch (generationError) {
+          console.error('Failed to generate puzzles, using backup:', generationError);
 
-        return {
-          success: true,
-          data: puzzle,
-          timestamp: new Date(),
-        };
+          // Fallback to backup puzzle
+          try {
+            const backupPuzzle = createBackupPuzzle(difficulty, today);
+            console.log(`Using backup puzzle for ${difficulty} difficulty`);
+            return createSuccessResponse(backupPuzzle);
+          } catch (backupError) {
+            console.error('Backup puzzle creation also failed:', backupError);
+            return createErrorResponse(
+              'GENERATION_FAILED',
+              'Both puzzle generation and backup failed'
+            );
+          }
+        }
       }
 
       const puzzle = this.getPuzzleFromSet(puzzleSet, difficulty);
-
-      return {
-        success: true,
-        data: puzzle,
-        timestamp: new Date(),
-      };
+      return createSuccessResponse(puzzle);
     } catch (error) {
       console.error('Error getting current puzzle:', error);
-      return {
-        success: false,
-        error: {
-          type: 'PUZZLE_NOT_FOUND',
-          message: 'Failed to retrieve current puzzle',
-          details: error instanceof Error ? error.message : 'Unknown error',
-        },
-        timestamp: new Date(),
-      };
-    }
-  }
 
-  /**
-   * Get daily puzzle set from Redis cache
-   */
-  private async getDailyPuzzleSet(date: string): Promise<DailyPuzzleSet | null> {
-    try {
-      const key = `reflectiq:puzzles:${date}`;
-      const puzzleData = await redis.get(key);
-
-      if (!puzzleData) {
-        return null;
+      // Determine specific error type
+      let errorType: ReflectIQErrorType = 'INTERNAL_ERROR';
+      if (error instanceof Error) {
+        if (error.message.includes('Redis') || error.message.includes('redis')) {
+          errorType = 'REDIS_ERROR';
+        } else if (error.message.includes('not found')) {
+          errorType = 'PUZZLE_NOT_FOUND';
+        }
       }
 
-      return JSON.parse(puzzleData) as DailyPuzzleSet;
-    } catch (error) {
-      console.error('Error retrieving puzzle set from Redis:', error);
-      return null;
+      return createErrorResponse(
+        errorType,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
     }
   }
 
   /**
-   * Store daily puzzle set in Redis cache
+   * Get daily puzzle set from Redis cache with retry logic
+   */
+  private async getDailyPuzzleSet(date: string): Promise<DailyPuzzleSet | null> {
+    const key = `reflectiq:puzzles:${date}`;
+
+    return withRedisRetry(
+      async () => {
+        const puzzleData = await redis.get(key);
+        if (!puzzleData) {
+          return null;
+        }
+        return JSON.parse(puzzleData) as DailyPuzzleSet;
+      },
+      async () => {
+        // Fallback: return null to trigger puzzle generation
+        console.log('Redis fallback: returning null to trigger puzzle generation');
+        return null;
+      }
+    );
+  }
+
+  /**
+   * Store daily puzzle set in Redis cache with retry logic
    */
   private async storeDailyPuzzleSet(puzzleSet: DailyPuzzleSet): Promise<void> {
-    try {
-      const key = `reflectiq:puzzles:${puzzleSet.date}`;
-      const puzzleData = JSON.stringify(puzzleSet);
+    const key = `reflectiq:puzzles:${puzzleSet.date}`;
+    const puzzleData = JSON.stringify(puzzleSet);
 
-      // Store with 48-hour expiration (allows for timezone differences)
-      await redis.set(key, puzzleData);
-      await redis.expire(key, 48 * 60 * 60);
-
-      console.log(`Stored daily puzzle set for ${puzzleSet.date}`);
-    } catch (error) {
-      console.error('Error storing puzzle set in Redis:', error);
-      throw error;
-    }
+    await withRedisRetry(
+      async () => {
+        // Store with 48-hour expiration (allows for timezone differences)
+        await redis.set(key, puzzleData);
+        await redis.expire(key, 48 * 60 * 60);
+        console.log(`Stored daily puzzle set for ${puzzleSet.date}`);
+      },
+      async () => {
+        // Fallback: log warning but don't fail the operation
+        console.warn(`Failed to store puzzle set for ${puzzleSet.date} - continuing without cache`);
+      }
+    );
   }
 
   /**
