@@ -149,25 +149,48 @@ export function asyncHandler(fn: (req: any, res: Response, next?: any) => Promis
 }
 
 /**
- * Redis operation wrapper with retry logic and fallback
+ * Enhanced Redis operation wrapper with retry logic, circuit breaker, and fallback
  */
 export async function withRedisRetry<T>(
   operation: () => Promise<T>,
   fallback?: () => Promise<T>,
-  maxRetries: number = 3
+  maxRetries: number = 3,
+  operationName: string = 'Redis operation'
 ): Promise<T> {
   let lastError: Error;
+  const startTime = Date.now();
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      return await operation();
+      const result = await operation();
+
+      // Log successful recovery if this wasn't the first attempt
+      if (attempt > 1) {
+        console.log(
+          `${operationName} succeeded on attempt ${attempt} after ${Date.now() - startTime}ms`
+        );
+      }
+
+      return result;
     } catch (error) {
       lastError = error as Error;
-      console.warn(`Redis operation failed (attempt ${attempt}/${maxRetries}):`, error);
+      const isRedisError =
+        error.message?.includes('Redis') ||
+        error.message?.includes('ECONNREFUSED') ||
+        error.message?.includes('ETIMEDOUT') ||
+        error.message?.includes('Connection');
 
-      // Wait before retry (exponential backoff)
+      console.warn(`${operationName} failed (attempt ${attempt}/${maxRetries}):`, {
+        error: error.message,
+        isRedisError,
+        duration: Date.now() - startTime,
+      });
+
+      // For Redis connection errors, wait longer between retries
       if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, Math.pow(2, attempt) * 100));
+        const baseDelay = isRedisError ? 500 : 100;
+        const delay = Math.min(baseDelay * Math.pow(2, attempt), 5000);
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
@@ -175,15 +198,115 @@ export async function withRedisRetry<T>(
   // If all retries failed, try fallback
   if (fallback) {
     try {
-      console.log('Attempting fallback operation after Redis failures');
-      return await fallback();
+      console.log(`Attempting fallback for ${operationName} after ${maxRetries} failed attempts`);
+      const fallbackResult = await fallback();
+      console.log(`Fallback succeeded for ${operationName}`);
+      return fallbackResult;
     } catch (fallbackError) {
-      console.error('Fallback operation also failed:', fallbackError);
+      console.error(`Fallback also failed for ${operationName}:`, fallbackError);
     }
   }
 
-  // If everything failed, throw the last Redis error
-  throw new Error(`Redis operation failed after ${maxRetries} attempts: ${lastError.message}`);
+  // If everything failed, throw a descriptive error
+  const totalDuration = Date.now() - startTime;
+  throw new Error(
+    `${operationName} failed after ${maxRetries} attempts over ${totalDuration}ms. Last error: ${lastError.message}`
+  );
+}
+
+/**
+ * Circuit breaker for Redis operations to prevent cascading failures
+ */
+class CircuitBreaker {
+  private failures = 0;
+  private lastFailureTime = 0;
+  private state: 'CLOSED' | 'OPEN' | 'HALF_OPEN' = 'CLOSED';
+
+  constructor(
+    private failureThreshold = 5,
+    private recoveryTimeout = 30000 // 30 seconds
+  ) {}
+
+  async execute<T>(operation: () => Promise<T>, operationName: string): Promise<T> {
+    if (this.state === 'OPEN') {
+      if (Date.now() - this.lastFailureTime > this.recoveryTimeout) {
+        this.state = 'HALF_OPEN';
+        console.log(`Circuit breaker for ${operationName} moving to HALF_OPEN state`);
+      } else {
+        throw new Error(
+          `Circuit breaker is OPEN for ${operationName}. Service temporarily unavailable.`
+        );
+      }
+    }
+
+    try {
+      const result = await operation();
+
+      // Reset on success
+      if (this.state === 'HALF_OPEN') {
+        this.state = 'CLOSED';
+        this.failures = 0;
+        console.log(`Circuit breaker for ${operationName} reset to CLOSED state`);
+      }
+
+      return result;
+    } catch (error) {
+      this.failures++;
+      this.lastFailureTime = Date.now();
+
+      if (this.failures >= this.failureThreshold) {
+        this.state = 'OPEN';
+        console.error(
+          `Circuit breaker for ${operationName} opened after ${this.failures} failures`
+        );
+      }
+
+      throw error;
+    }
+  }
+
+  getState() {
+    return {
+      state: this.state,
+      failures: this.failures,
+      lastFailureTime: this.lastFailureTime,
+    };
+  }
+}
+
+// Global circuit breaker instances
+const redisCircuitBreaker = new CircuitBreaker(5, 30000);
+const puzzleGenerationCircuitBreaker = new CircuitBreaker(3, 60000);
+
+/**
+ * Enhanced Redis operation with circuit breaker protection
+ */
+export async function withRedisCircuitBreaker<T>(
+  operation: () => Promise<T>,
+  fallback?: () => Promise<T>,
+  operationName: string = 'Redis operation'
+): Promise<T> {
+  return redisCircuitBreaker.execute(async () => {
+    return withRedisRetry(operation, fallback, 3, operationName);
+  }, operationName);
+}
+
+/**
+ * Puzzle generation with circuit breaker and backup templates
+ */
+export async function withPuzzleGenerationFallback<T>(
+  operation: () => Promise<T>,
+  backupOperation: () => Promise<T>,
+  operationName: string = 'Puzzle generation'
+): Promise<T> {
+  return puzzleGenerationCircuitBreaker.execute(async () => {
+    try {
+      return await operation();
+    } catch (error) {
+      console.warn(`Primary ${operationName} failed, attempting backup:`, error.message);
+      return await backupOperation();
+    }
+  }, operationName);
 }
 
 /**
@@ -238,13 +361,187 @@ export function checkRateLimit(
 }
 
 /**
- * Clean up old rate limit entries
+ * Error monitoring and metrics collection
+ */
+interface ErrorMetrics {
+  totalErrors: number;
+  errorsByType: Record<ReflectIQErrorType, number>;
+  recentErrors: Array<{
+    type: ReflectIQErrorType;
+    message: string;
+    timestamp: Date;
+    endpoint?: string;
+  }>;
+  redisFailures: number;
+  circuitBreakerTrips: number;
+}
+
+class ErrorMonitor {
+  private metrics: ErrorMetrics = {
+    totalErrors: 0,
+    errorsByType: {} as Record<ReflectIQErrorType, number>,
+    recentErrors: [],
+    redisFailures: 0,
+    circuitBreakerTrips: 0,
+  };
+
+  recordError(type: ReflectIQErrorType, message: string, endpoint?: string) {
+    this.metrics.totalErrors++;
+    this.metrics.errorsByType[type] = (this.metrics.errorsByType[type] || 0) + 1;
+
+    // Keep only last 100 errors
+    this.metrics.recentErrors.unshift({
+      type,
+      message,
+      timestamp: new Date(),
+      endpoint,
+    });
+
+    if (this.metrics.recentErrors.length > 100) {
+      this.metrics.recentErrors = this.metrics.recentErrors.slice(0, 100);
+    }
+
+    // Special tracking for Redis failures
+    if (type === 'REDIS_ERROR') {
+      this.metrics.redisFailures++;
+    }
+  }
+
+  recordCircuitBreakerTrip() {
+    this.metrics.circuitBreakerTrips++;
+  }
+
+  getMetrics(): ErrorMetrics {
+    return { ...this.metrics };
+  }
+
+  getHealthStatus() {
+    const recentErrorCount = this.metrics.recentErrors.filter(
+      (error) => Date.now() - error.timestamp.getTime() < 300000 // Last 5 minutes
+    ).length;
+
+    const redisCircuitState = redisCircuitBreaker.getState();
+    const puzzleCircuitState = puzzleGenerationCircuitBreaker.getState();
+
+    return {
+      status: recentErrorCount > 10 || redisCircuitState.state === 'OPEN' ? 'degraded' : 'healthy',
+      recentErrorCount,
+      circuitBreakers: {
+        redis: redisCircuitState,
+        puzzleGeneration: puzzleCircuitState,
+      },
+      metrics: this.getMetrics(),
+    };
+  }
+
+  reset() {
+    this.metrics = {
+      totalErrors: 0,
+      errorsByType: {} as Record<ReflectIQErrorType, number>,
+      recentErrors: [],
+      redisFailures: 0,
+      circuitBreakerTrips: 0,
+    };
+  }
+}
+
+export const errorMonitor = new ErrorMonitor();
+
+/**
+ * Enhanced error response with monitoring
+ */
+export function sendErrorResponseWithMonitoring(
+  res: Response,
+  type: ReflectIQErrorType,
+  details?: string,
+  customMessage?: string,
+  endpoint?: string
+): void {
+  const statusCode = ERROR_STATUS_CODES[type];
+  const errorResponse = createErrorResponse(type, details, customMessage);
+
+  // Record error for monitoring
+  errorMonitor.recordError(type, errorResponse.error.message, endpoint);
+
+  console.error(`API Error [${statusCode}] at ${endpoint || 'unknown'}:`, errorResponse.error);
+  res.status(statusCode).json(errorResponse);
+}
+
+/**
+ * Enhanced async handler with better error classification and monitoring
+ */
+export function enhancedAsyncHandler(fn: (req: any, res: Response, next?: any) => Promise<void>) {
+  return (req: any, res: Response, next: any) => {
+    Promise.resolve(fn(req, res, next)).catch((error) => {
+      const endpoint = `${req.method} ${req.path}`;
+      console.error(`Unhandled route error at ${endpoint}:`, error);
+
+      // Enhanced error type detection
+      let errorType: ReflectIQErrorType = 'INTERNAL_ERROR';
+      let details = error.message;
+
+      // Redis-related errors
+      if (
+        error.message?.includes('Redis') ||
+        error.message?.includes('ECONNREFUSED') ||
+        error.message?.includes('ETIMEDOUT') ||
+        error.message?.includes('Connection')
+      ) {
+        errorType = 'REDIS_ERROR';
+      }
+      // Validation errors
+      else if (
+        error.message?.includes('validation') ||
+        error.message?.includes('invalid') ||
+        error.message?.includes('required')
+      ) {
+        errorType = 'VALIDATION_ERROR';
+      }
+      // Not found errors
+      else if (error.message?.includes('not found') || error.message?.includes('does not exist')) {
+        errorType = 'PUZZLE_NOT_FOUND';
+      }
+      // Session/auth errors
+      else if (error.message?.includes('expired') || error.message?.includes('unauthorized')) {
+        errorType = 'SESSION_EXPIRED';
+      }
+      // Rate limiting
+      else if (error.message?.includes('rate limit') || error.message?.includes('too many')) {
+        errorType = 'RATE_LIMITED';
+      }
+      // Generation failures
+      else if (error.message?.includes('generation') || error.message?.includes('generate')) {
+        errorType = 'GENERATION_FAILED';
+      }
+
+      sendErrorResponseWithMonitoring(res, errorType, details, undefined, endpoint);
+    });
+  };
+}
+
+/**
+ * Clean up old rate limit entries and error monitoring
  */
 setInterval(() => {
   const now = Date.now();
+
+  // Clean up rate limiting
   for (const [key, record] of rateLimitStore.entries()) {
     if (now > record.resetTime) {
       rateLimitStore.delete(key);
     }
+  }
+
+  // Clean up old error records (keep only last 24 hours)
+  const metrics = errorMonitor.getMetrics();
+  const cutoffTime = now - 24 * 60 * 60 * 1000;
+  const filteredErrors = metrics.recentErrors.filter(
+    (error) => error.timestamp.getTime() > cutoffTime
+  );
+
+  if (filteredErrors.length !== metrics.recentErrors.length) {
+    console.log(
+      `Cleaned up ${metrics.recentErrors.length - filteredErrors.length} old error records`
+    );
   }
 }, 60000); // Clean up every minute

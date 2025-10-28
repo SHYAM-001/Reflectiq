@@ -10,9 +10,12 @@ import { GetPuzzleResponse } from '../../shared/types/api.js';
 import { PuzzleGenerator } from '../../shared/puzzle/PuzzleGenerator.js';
 import {
   withRedisRetry,
+  withRedisCircuitBreaker,
+  withPuzzleGenerationFallback,
   createErrorResponse,
   createSuccessResponse,
   ReflectIQErrorType,
+  errorMonitor,
 } from '../utils/errorHandler.js';
 import { createBackupPuzzle } from '../utils/backupPuzzles.js';
 
@@ -97,7 +100,7 @@ export class PuzzleService {
   private async getDailyPuzzleSet(date: string): Promise<DailyPuzzleSet | null> {
     const key = `reflectiq:puzzles:${date}`;
 
-    return withRedisRetry(
+    return withRedisCircuitBreaker(
       async () => {
         const puzzleData = await redis.get(key);
         if (!puzzleData) {
@@ -107,9 +110,12 @@ export class PuzzleService {
       },
       async () => {
         // Fallback: return null to trigger puzzle generation
-        console.log('Redis fallback: returning null to trigger puzzle generation');
+        console.warn(
+          `Redis unavailable for puzzle retrieval, will generate new puzzles for ${date}`
+        );
         return null;
-      }
+      },
+      `Get daily puzzle set for ${date}`
     );
   }
 
@@ -120,7 +126,7 @@ export class PuzzleService {
     const key = `reflectiq:puzzles:${puzzleSet.date}`;
     const puzzleData = JSON.stringify(puzzleSet);
 
-    await withRedisRetry(
+    await withRedisCircuitBreaker(
       async () => {
         // Store with 48-hour expiration (allows for timezone differences)
         await redis.set(key, puzzleData);
@@ -135,23 +141,63 @@ export class PuzzleService {
   }
 
   /**
-   * Generate and cache daily puzzles
+   * Generate and cache daily puzzles with enhanced error handling and fallbacks
    */
   public async generateDailyPuzzles(date: string): Promise<DailyPuzzleSet> {
-    try {
-      console.log(`Generating daily puzzles for ${date}`);
+    return withPuzzleGenerationFallback(
+      // Primary generation attempt
+      async () => {
+        console.log(`Generating daily puzzles for ${date}`);
+        const puzzleSet = await this.puzzleGenerator.generateDailyPuzzles(date);
 
-      const puzzleSet = await this.puzzleGenerator.generateDailyPuzzles(date);
+        // Store in Redis cache with circuit breaker protection
+        await withRedisCircuitBreaker(
+          () => this.storeDailyPuzzleSet(puzzleSet),
+          undefined,
+          `Store daily puzzles for ${date}`
+        );
 
-      // Store in Redis cache
-      await this.storeDailyPuzzleSet(puzzleSet);
+        console.log(`Successfully generated and cached puzzles for ${date}`);
+        return puzzleSet;
+      },
+      // Backup generation using templates
+      async () => {
+        console.warn(`Primary puzzle generation failed for ${date}, using backup templates`);
 
-      console.log(`Successfully generated and cached puzzles for ${date}`);
-      return puzzleSet;
-    } catch (error) {
-      console.error('Error generating daily puzzles:', error);
-      throw error;
-    }
+        const backupPuzzleSet: DailyPuzzleSet = {
+          date,
+          puzzles: {
+            easy: createBackupPuzzle('Easy', date),
+            medium: createBackupPuzzle('Medium', date),
+            hard: createBackupPuzzle('Hard', date),
+          },
+          status: 'active',
+        };
+
+        // Try to store backup puzzles, but don't fail if Redis is down
+        try {
+          await withRedisCircuitBreaker(
+            () => this.storeDailyPuzzleSet(backupPuzzleSet),
+            undefined,
+            `Store backup puzzles for ${date}`
+          );
+          console.log(`Successfully stored backup puzzles for ${date}`);
+        } catch (error) {
+          console.warn(
+            `Failed to store backup puzzles in Redis for ${date}, continuing with in-memory puzzles:`,
+            error
+          );
+        }
+
+        errorMonitor.recordError(
+          'GENERATION_FAILED',
+          `Used backup puzzles for ${date}`,
+          'generateDailyPuzzles'
+        );
+        return backupPuzzleSet;
+      },
+      `Daily puzzle generation for ${date}`
+    );
   }
 
   /**

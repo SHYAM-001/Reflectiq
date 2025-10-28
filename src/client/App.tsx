@@ -5,6 +5,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ConnectionStatus } from './components/ConnectionStatus';
 import Index from './pages/Index';
+import InteractiveLeaderboard from './components/InteractiveLeaderboard';
+import { useEffect, useState } from 'react';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,26 +32,86 @@ const queryClient = new QueryClient({
   },
 });
 
-const App = () => (
-  <ErrorBoundary>
-    <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <div className="relative">
-          {/* Connection status indicator */}
-          <div className="fixed top-4 right-4 z-50">
-            <ConnectionStatus />
+const App = () => {
+  const [postData, setPostData] = useState<unknown>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // Check if we have post data (for custom posts)
+    const checkPostData = async () => {
+      try {
+        // In Devvit Web, post data should be available through the context
+        // We'll try to fetch it from the server
+        const response = await fetch('/api/post-context');
+        if (response.ok) {
+          const data = await response.json();
+          setPostData(data.postData);
+        }
+      } catch (error) {
+        console.log('No post data available, showing default game');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkPostData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-bg flex items-center justify-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+      </div>
+    );
+  }
+
+  // If this is a leaderboard post, show the leaderboard component
+  if (postData?.type === 'leaderboard') {
+    return (
+      <ErrorBoundary>
+        <QueryClientProvider client={queryClient}>
+          <TooltipProvider>
+            <div className="relative">
+              {/* Connection status indicator */}
+              <div className="fixed top-4 right-4 z-50">
+                <ConnectionStatus />
+              </div>
+
+              {/* Toast notifications */}
+              <Toaster />
+              <Sonner />
+
+              {/* Leaderboard content */}
+              <InteractiveLeaderboard postData={postData} />
+            </div>
+          </TooltipProvider>
+        </QueryClientProvider>
+      </ErrorBoundary>
+    );
+  }
+
+  // Default game content
+  return (
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <TooltipProvider>
+          <div className="relative">
+            {/* Connection status indicator */}
+            <div className="fixed top-4 right-4 z-50">
+              <ConnectionStatus />
+            </div>
+
+            {/* Toast notifications */}
+            <Toaster />
+            <Sonner />
+
+            {/* Main app content */}
+            <Index />
           </div>
-
-          {/* Toast notifications */}
-          <Toaster />
-          <Sonner />
-
-          {/* Main app content */}
-          <Index />
-        </div>
-      </TooltipProvider>
-    </QueryClientProvider>
-  </ErrorBoundary>
-);
+        </TooltipProvider>
+      </QueryClientProvider>
+    </ErrorBoundary>
+  );
+};
 
 export default App;

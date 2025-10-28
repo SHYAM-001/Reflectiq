@@ -6,7 +6,13 @@
 
 import { Router } from 'express';
 import { redisClient } from '../utils/redisClient.js';
-import { asyncHandler, sendSuccessResponse, sendErrorResponse } from '../utils/errorHandler.js';
+import {
+  asyncHandler,
+  sendSuccessResponse,
+  sendErrorResponse,
+  errorMonitor,
+  enhancedAsyncHandler,
+} from '../utils/errorHandler.js';
 
 const router = Router();
 
@@ -31,12 +37,15 @@ router.get(
 
 /**
  * GET /api/health/detailed
- * Detailed health check including dependencies
+ * Detailed health check including dependencies and error monitoring
  */
 router.get(
   '/health/detailed',
-  asyncHandler(async (req, res) => {
+  enhancedAsyncHandler(async (req, res) => {
     const startTime = Date.now();
+
+    // Get error monitoring health status
+    const errorHealthStatus = errorMonitor.getHealthStatus();
 
     // Check Redis connectivity
     let redisStatus = 'healthy';
@@ -60,8 +69,12 @@ router.get(
       external: Math.round(memoryUsage.external / 1024 / 1024),
     };
 
+    // Determine overall health status
+    const overallStatus =
+      redisStatus === 'healthy' && errorHealthStatus.status === 'healthy' ? 'healthy' : 'degraded';
+
     const healthStatus = {
-      status: redisStatus === 'healthy' ? 'healthy' : 'degraded',
+      status: overallStatus,
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       version: process.env.npm_package_version || '1.0.0',
@@ -77,6 +90,7 @@ router.get(
         nodeVersion: process.version,
         platform: process.platform,
       },
+      errorMonitoring: errorHealthStatus,
       responseTime: Date.now() - startTime,
     };
 
@@ -98,14 +112,18 @@ router.get(
 
 /**
  * GET /api/metrics
- * Basic application metrics
+ * Enhanced application metrics with error monitoring
  */
 router.get(
   '/metrics',
-  asyncHandler(async (req, res) => {
+  enhancedAsyncHandler(async (req, res) => {
     // Get Redis connection status and metrics
     const redisStatus = redisClient.getConnectionStatus();
     const redisMetrics = redisClient.getMetrics();
+
+    // Get error monitoring metrics
+    const errorMetrics = errorMonitor.getMetrics();
+    const errorHealthStatus = errorMonitor.getHealthStatus();
 
     const metrics = {
       timestamp: new Date().toISOString(),
@@ -114,6 +132,15 @@ router.get(
       redis: {
         connectionStatus: redisStatus,
         operationMetrics: redisMetrics,
+      },
+      errors: {
+        total: errorMetrics.totalErrors,
+        byType: errorMetrics.errorsByType,
+        recentCount: errorMetrics.recentErrors.length,
+        redisFailures: errorMetrics.redisFailures,
+        circuitBreakerTrips: errorMetrics.circuitBreakerTrips,
+        healthStatus: errorHealthStatus.status,
+        circuitBreakers: errorHealthStatus.circuitBreakers,
       },
       // Add more application-specific metrics here
       puzzles: {
@@ -125,6 +152,47 @@ router.get(
     };
 
     sendSuccessResponse(res, metrics);
+  })
+);
+
+/**
+ * GET /api/errors
+ * Detailed error information for debugging
+ */
+router.get(
+  '/errors',
+  enhancedAsyncHandler(async (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 50;
+    const errorMetrics = errorMonitor.getMetrics();
+
+    const errorData = {
+      summary: {
+        totalErrors: errorMetrics.totalErrors,
+        errorsByType: errorMetrics.errorsByType,
+        redisFailures: errorMetrics.redisFailures,
+        circuitBreakerTrips: errorMetrics.circuitBreakerTrips,
+      },
+      recentErrors: errorMetrics.recentErrors.slice(0, limit),
+      healthStatus: errorMonitor.getHealthStatus(),
+    };
+
+    sendSuccessResponse(res, errorData);
+  })
+);
+
+/**
+ * POST /api/errors/reset
+ * Reset error monitoring metrics (for testing/maintenance)
+ */
+router.post(
+  '/errors/reset',
+  enhancedAsyncHandler(async (req, res) => {
+    errorMonitor.reset();
+
+    sendSuccessResponse(res, {
+      message: 'Error monitoring metrics have been reset',
+      timestamp: new Date().toISOString(),
+    });
   })
 );
 

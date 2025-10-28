@@ -3,6 +3,12 @@ import { InitResponse, IncrementResponse, DecrementResponse } from '../shared/ty
 import { reddit, createServer, context, getServerPort } from '@devvit/web/server';
 import { UIResponse } from '@devvit/web/shared';
 import { redisClient } from './utils/redisClient.js';
+import {
+  enhancedAsyncHandler,
+  sendErrorResponseWithMonitoring,
+  withRedisCircuitBreaker,
+  errorMonitor,
+} from './utils/errorHandler.js';
 import { createPost } from './core/post';
 import { PuzzleService } from './services/PuzzleService.js';
 import { LeaderboardService } from './services/LeaderboardService.js';
@@ -12,19 +18,55 @@ import healthRoutes from './routes/healthRoutes.js';
 
 const app = express();
 
-// Middleware for JSON body parsing
-app.use(express.json());
+// Middleware for JSON body parsing with error handling
+app.use(
+  express.json({
+    limit: '10mb',
+    verify: (req, res, buf) => {
+      try {
+        JSON.parse(buf.toString());
+      } catch (error) {
+        throw new Error('Invalid JSON payload');
+      }
+    },
+  })
+);
+
 // Middleware for URL-encoded body parsing
-app.use(express.urlencoded({ extended: true }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
 // Middleware for plain text body parsing
-app.use(express.text());
+app.use(express.text({ limit: '10mb' }));
+
+// Request logging middleware
+app.use((req, res, next) => {
+  const startTime = Date.now();
+
+  res.on('finish', () => {
+    const duration = Date.now() - startTime;
+    const logLevel = res.statusCode >= 400 ? 'warn' : 'info';
+
+    console[logLevel](`${req.method} ${req.path} - ${res.statusCode} (${duration}ms)`);
+
+    // Track errors for monitoring
+    if (res.statusCode >= 400) {
+      errorMonitor.recordError(
+        res.statusCode >= 500 ? 'INTERNAL_ERROR' : 'VALIDATION_ERROR',
+        `HTTP ${res.statusCode} - ${req.method} ${req.path}`,
+        `${req.method} ${req.path}`
+      );
+    }
+  });
+
+  next();
+});
 
 const router = express.Router();
 
 // Helper functions for data archival and cleanup
 async function archiveCompletedPuzzleData(
   date: string,
-  stats: any,
+  stats: unknown,
   leaderboardEntries: unknown[]
 ): Promise<void> {
   try {
@@ -163,6 +205,154 @@ router.use('/api/puzzle', puzzleRoutes);
 router.use('/api/leaderboard', leaderboardRoutes);
 router.use('/api', healthRoutes);
 
+// Post context endpoint for React client
+router.get('/api/post-context', async (_req, res): Promise<void> => {
+  try {
+    // In Devvit Web, post data should be available through context
+    const postData = context.postData || null;
+
+    res.json({
+      postData,
+      postId: context.postId,
+      subredditName: context.subredditName,
+    });
+  } catch (error) {
+    console.error('Error getting post context:', error);
+    res.json({
+      postData: null,
+      postId: null,
+      subredditName: null,
+    });
+  }
+});
+
+// Leaderboard data endpoint for React client
+router.get('/api/leaderboard-data/:type', async (req, res): Promise<void> => {
+  try {
+    const { type } = req.params;
+    const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
+
+    const leaderboardService = LeaderboardService.getInstance();
+
+    if (type === 'daily') {
+      const leaderboardResult = await leaderboardService.getDailyLeaderboard(date, 10);
+      const stats = await leaderboardService.getLeaderboardStats(date);
+
+      const responseData = {
+        type: 'daily',
+        date,
+        entries: leaderboardResult.entries.map((entry, index) => ({
+          rank: index + 1,
+          username: entry.username,
+          time: `${Math.floor(entry.time / 60)}:${(entry.time % 60).toString().padStart(2, '0')}`,
+          difficulty: entry.difficulty.toLowerCase(),
+          hintsUsed: entry.hints,
+          score: entry.score,
+        })),
+        stats: {
+          totalPlayers: stats.dailyPlayers,
+          totalSubmissions: stats.totalSubmissions,
+          fastestTime:
+            leaderboardResult.entries.length > 0
+              ? `${Math.floor(leaderboardResult.entries[0].time / 60)}:${(leaderboardResult.entries[0].time % 60).toString().padStart(2, '0')}`
+              : 'N/A',
+          topScore: leaderboardResult.entries.length > 0 ? leaderboardResult.entries[0].score : 0,
+          puzzleStats: stats.puzzleStats,
+        },
+      };
+
+      res.json(responseData);
+    } else if (type === 'weekly') {
+      // Get this week's date range
+      const today = new Date(date);
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - today.getDay());
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6);
+
+      const weekStartStr = weekStart.toISOString().split('T')[0];
+      const weekEndStr = weekEnd.toISOString().split('T')[0];
+
+      // Aggregate weekly data
+      const weeklyData: {
+        [username: string]: {
+          totalScore: number;
+          puzzlesSolved: number;
+          bestTime: number;
+          difficulties: Set<string>;
+        };
+      } = {};
+
+      for (let d = new Date(weekStart); d <= weekEnd; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+
+        try {
+          const dailyLeaderboard = await leaderboardService.getDailyLeaderboard(dateStr, 50);
+
+          for (const entry of dailyLeaderboard.entries) {
+            if (!weeklyData[entry.username]) {
+              weeklyData[entry.username] = {
+                totalScore: 0,
+                puzzlesSolved: 0,
+                bestTime: entry.time,
+                difficulties: new Set(),
+              };
+            }
+
+            weeklyData[entry.username].totalScore += entry.score;
+            weeklyData[entry.username].puzzlesSolved += 1;
+            weeklyData[entry.username].bestTime = Math.min(
+              weeklyData[entry.username].bestTime,
+              entry.time
+            );
+            weeklyData[entry.username].difficulties.add(entry.difficulty);
+          }
+        } catch (error) {
+          console.warn(`Failed to get daily leaderboard for ${dateStr}:`, error);
+        }
+      }
+
+      const weeklyEntries = Object.entries(weeklyData)
+        .map(([username, data]) => ({
+          rank: 0, // Will be set after sorting
+          username,
+          totalScore: data.totalScore,
+          puzzlesSolved: data.puzzlesSolved,
+          bestTime: `${Math.floor(data.bestTime / 60)}:${(data.bestTime % 60).toString().padStart(2, '0')}`,
+          avgDifficulty: Array.from(data.difficulties).join(', '),
+        }))
+        .sort((a, b) => b.totalScore - a.totalScore)
+        .slice(0, 15)
+        .map((entry, index) => ({ ...entry, rank: index + 1 }));
+
+      const responseData = {
+        type: 'weekly',
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        entries: weeklyEntries,
+        stats: {
+          activePlayersCount: weeklyEntries.length,
+          totalPuzzlesSolved: weeklyEntries.reduce((sum, entry) => sum + entry.puzzlesSolved, 0),
+          averageScore:
+            weeklyEntries.length > 0
+              ? Math.round(
+                  weeklyEntries.reduce((sum, entry) => sum + entry.totalScore, 0) /
+                    weeklyEntries.length
+                )
+              : 0,
+        },
+      };
+
+      res.json(responseData);
+    } else {
+      res.status(400).json({ error: 'Invalid leaderboard type. Use "daily" or "weekly".' });
+    }
+  } catch (error) {
+    console.error('Error fetching leaderboard data:', error);
+    res.status(500).json({ error: 'Failed to fetch leaderboard data' });
+  }
+});
+
 router.post('/internal/on-app-install', async (_req, res): Promise<void> => {
   try {
     const post = await createPost();
@@ -284,65 +474,46 @@ Be the first to solve today's ReflectIQ puzzle and claim the top spot on the lea
       // Get leaderboard statistics
       const stats = await leaderboardService.getLeaderboardStats(today);
 
-      // Format leaderboard as Reddit post content
-      let postContent = `# 🏆 ReflectIQ Daily Leaderboard - ${today}
+      // Prepare leaderboard data for the custom post
+      const leaderboardData = {
+        type: 'leaderboard',
+        leaderboardType: 'daily',
+        date: today,
+        entries: entries.map((entry, index) => ({
+          rank: index + 1,
+          username: entry.username,
+          time: `${Math.floor(entry.time / 60)}:${(entry.time % 60).toString().padStart(2, '0')}`,
+          difficulty: entry.difficulty.toLowerCase(),
+          hintsUsed: entry.hints,
+          score: entry.score,
+        })),
+        stats: {
+          totalPlayers: stats.dailyPlayers,
+          totalSubmissions: stats.totalSubmissions,
+          fastestTime:
+            entries.length > 0
+              ? `${Math.floor(entries[0].time / 60)}:${(entries[0].time % 60).toString().padStart(2, '0')}`
+              : 'N/A',
+          topScore: entries.length > 0 ? entries[0].score : 0,
+          puzzleStats: stats.puzzleStats,
+        },
+      };
 
-**Today's Top Puzzle Solvers!** 🎯
-
-## 📊 Daily Statistics:
-- **Total Players:** ${stats.dailyPlayers}
-- **Total Submissions:** ${stats.totalSubmissions}
-- **Easy Puzzles:** ${stats.puzzleStats.easy} players
-- **Medium Puzzles:** ${stats.puzzleStats.medium} players  
-- **Hard Puzzles:** ${stats.puzzleStats.hard} players
-
-## 🥇 Top 10 Performers:
-
-| Rank | Player | Difficulty | Score | Time | Hints |
-|------|--------|------------|-------|------|-------|`;
-
-      entries.forEach((entry, index) => {
-        const rank = index + 1;
-        const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
-        const timeFormatted = `${Math.floor(entry.time / 60)}:${(entry.time % 60).toString().padStart(2, '0')}`;
-
-        postContent += `\n| ${medal} | u/${entry.username} | ${entry.difficulty} | ${entry.score} | ${timeFormatted} | ${entry.hints} |`;
-      });
-
-      postContent += `
-
----
-
-## 🎯 How to Play ReflectIQ:
-1. **Find today's puzzle post** and click to start playing
-2. **Guide the laser** from entry to exit using mirrors and materials
-3. **Submit your answer** as a comment: \`Exit: [Cell]\`
-4. **Climb the leaderboard** with faster times and fewer hints!
-
-## 💡 Scoring Tips:
-- **No hints used:** 100% score multiplier
-- **1-2 hints:** 80-60% score multiplier  
-- **3-4 hints:** 40-20% score multiplier
-- **Speed bonus:** Faster completion = higher final score
-
-## 🔄 Daily Challenge:
-New puzzles are posted every day at midnight. Come back tomorrow for fresh challenges!
-
-*Good luck, and may the laser be with you!* ⚡✨`;
-
-      // Create the leaderboard post
+      // Create a custom post with leaderboard data
       const post = await reddit.submitPost({
         subredditName: context.subredditName,
         title: `🏆 Daily ReflectIQ Leaderboard - ${today}`,
-        text: postContent,
+        // Use custom post with embedded data
+        preview: `🏆 Interactive Daily Leaderboard - ${today}\n\n${entries.length} players competing today!\n\nClick to view the full interactive leaderboard with rankings, scores, and statistics.`,
+        postData: leaderboardData,
       });
 
-      console.log(`Leaderboard post created successfully: ${post.id}`);
+      console.log(`Interactive leaderboard post created successfully: ${post.id}`);
 
       // Return success response with navigation
       res.json({
         showToast: {
-          text: `Leaderboard posted! ${entries.length} players featured.`,
+          text: `Interactive leaderboard posted! ${entries.length} players featured.`,
           appearance: 'success',
         },
         navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
@@ -536,19 +707,47 @@ The weekly leaderboard resets every Sunday. New week, new chances to climb to th
 
 *Keep playing daily puzzles to maintain your weekly ranking!* ⚡🏆`;
 
+      // Prepare weekly leaderboard data for the custom post
+      const weeklyLeaderboardData = {
+        type: 'leaderboard',
+        leaderboardType: 'weekly',
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        entries: weeklyEntries.map((entry, index) => ({
+          rank: index + 1,
+          username: entry.username,
+          totalScore: entry.totalScore,
+          puzzlesSolved: entry.puzzlesSolved,
+          bestTime: `${Math.floor(entry.bestTime / 60)}:${(entry.bestTime % 60).toString().padStart(2, '0')}`,
+          avgDifficulty: entry.avgDifficulty,
+        })),
+        stats: {
+          activePlayersCount: weeklyEntries.length,
+          totalPuzzlesSolved: weeklyEntries.reduce((sum, entry) => sum + entry.puzzlesSolved, 0),
+          averageScore:
+            weeklyEntries.length > 0
+              ? Math.round(
+                  weeklyEntries.reduce((sum, entry) => sum + entry.totalScore, 0) /
+                    weeklyEntries.length
+                )
+              : 0,
+        },
+      };
+
       // Create the weekly leaderboard post
       const post = await reddit.submitPost({
         subredditName: context.subredditName,
         title: `🏆 Weekly ReflectIQ Leaderboard - Week ${weekStartStr}`,
-        text: postContent,
+        preview: `🏆 Interactive Weekly Leaderboard - Week ${weekStartStr}\n\n${weeklyEntries.length} players competing this week!\n\nClick to view the full interactive weekly leaderboard with rankings, total scores, and statistics.`,
+        postData: weeklyLeaderboardData,
       });
 
-      console.log(`Weekly leaderboard post created successfully: ${post.id}`);
+      console.log(`Interactive weekly leaderboard post created successfully: ${post.id}`);
 
       // Return success response with navigation
       res.json({
         showToast: {
-          text: `Weekly leaderboard posted! ${weeklyEntries.length} players featured.`,
+          text: `Interactive weekly leaderboard posted! ${weeklyEntries.length} players featured.`,
           appearance: 'success',
         },
         navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
@@ -1111,9 +1310,85 @@ router.post('/internal/triggers/comment-submit', async (req, res): Promise<void>
 // Use router middleware
 app.use(router);
 
+// Global error handling middleware (must be last)
+app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const endpoint = `${req.method} ${req.path}`;
+  console.error(`Global error handler caught error at ${endpoint}:`, error);
+
+  // Record error for monitoring
+  errorMonitor.recordError('INTERNAL_ERROR', error.message, endpoint);
+
+  // Don't send response if headers already sent
+  if (res.headersSent) {
+    return next(error);
+  }
+
+  sendErrorResponseWithMonitoring(
+    res,
+    'INTERNAL_ERROR',
+    error.message,
+    'An unexpected error occurred',
+    endpoint
+  );
+});
+
+// 404 handler for unmatched routes
+app.use((req: express.Request, res: express.Response) => {
+  const endpoint = `${req.method} ${req.path}`;
+  console.warn(`404 - Route not found: ${endpoint}`);
+
+  sendErrorResponseWithMonitoring(
+    res,
+    'PUZZLE_NOT_FOUND',
+    `Route not found: ${endpoint}`,
+    'The requested endpoint does not exist',
+    endpoint
+  );
+});
+
 // Get port from environment variable with fallback
 const port = getServerPort();
 
 const server = createServer(app);
-server.on('error', (err) => console.error(`server error; ${err.stack}`));
+
+// Enhanced server error handling
+server.on('error', (err: Error) => {
+  console.error(`Server error:`, err);
+  errorMonitor.recordError('INTERNAL_ERROR', err.message, 'server');
+});
+
+// Graceful shutdown handling
+process.on('SIGTERM', () => {
+  console.log('SIGTERM received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+process.on('SIGINT', () => {
+  console.log('SIGINT received, shutting down gracefully');
+  server.close(() => {
+    console.log('Server closed');
+    process.exit(0);
+  });
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error: Error) => {
+  console.error('Uncaught Exception:', error);
+  errorMonitor.recordError('INTERNAL_ERROR', error.message, 'uncaughtException');
+  process.exit(1);
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason: unknown, promise: Promise<unknown>) => {
+  console.error('Unhandled Rejection at:', promise, 'reason:', reason);
+  errorMonitor.recordError('INTERNAL_ERROR', String(reason), 'unhandledRejection');
+});
+
+console.log(`🚀 ReflectIQ server starting on port ${port}`);
+console.log(`📊 Error monitoring and circuit breakers enabled`);
+console.log(`🔧 Enhanced Redis retry logic with fallbacks active`);
+
 server.listen(port);
