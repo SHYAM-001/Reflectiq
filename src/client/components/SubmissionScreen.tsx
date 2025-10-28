@@ -2,6 +2,7 @@ import { Button } from './ui/button';
 import { MessageCircle, Clock, Lightbulb, Copy, CheckCircle } from 'lucide-react';
 import { useState } from 'react';
 import { Puzzle, GridPosition } from '../types/api';
+import { toast } from 'sonner';
 import { navigateToCommentWithText } from '../utils/navigation';
 
 interface SubmissionScreenProps {
@@ -47,6 +48,9 @@ export const SubmissionScreen = ({
 
   const handleNavigateToComment = async () => {
     try {
+      toast.success('Time stopped! Navigating to Reddit to submit your answer...', {
+        duration: 3000,
+      });
       await navigateToCommentWithText(commentText);
     } catch (error) {
       console.error('Failed to navigate to comment:', error);

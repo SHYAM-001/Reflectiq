@@ -47,37 +47,38 @@ export const PuzzleScreen = ({
     onSubmitAnswer(selectedAnswer, currentTime);
 
     // Show success message and navigate to Reddit
-    toast.success('Time stopped! Navigating to Reddit to submit your answer...', {
-      duration: 3000,
-    });
+    // toast.success('Time stopped! Navigating to Reddit to submit your answer...', {
+    //   duration: 3000,
+    // });
 
     // Navigate to Reddit with the comment text
-    try {
-      await navigateToCommentWithText(formattedAnswer);
-    } catch (error) {
-      console.error('Navigation failed:', error);
-      // Fallback: show instructions
-      toast.info(`Please submit this as a comment: "${formattedAnswer}"`, {
-        duration: 8000,
-        description: 'Copy the text above and paste it as a comment on the Reddit post',
-      });
-    }
+    // try {
+    //   await navigateToCommentWithText(formattedAnswer);
+    // } catch (error) {
+    //   console.error('Navigation failed:', error);
+    //   // Fallback: show instructions
+    //   toast.info(`Please submit this as a comment: "${formattedAnswer}"`, {
+    //     duration: 8000,
+    //     description: 'Copy the text above and paste it as a comment on the Reddit post',
+    //   });
+    // }
   };
 
   return (
-    <div className="min-h-screen flex flex-col bg-gradient-bg overflow-hidden">
+    <div className="min-h-screen flex flex-col  bg-gradient-bg overflow-hidden">
       {/* Top Bar */}
-      <div className="flex justify-between items-center p-4 md:p-6">
-        <div className="flex items-center space-x-4">
+      <div className="flex justify-between items-center gap-2 p-4 md:p-6">
+        {/* <div className="flex items-center space-x-4">
           <div className="text-sm text-foreground/60">
             {puzzle.difficulty} • {puzzle.gridSize}x{puzzle.gridSize}
           </div>
-        </div>
+        </div> */}
 
-        <div className="flex items-center space-x-4">
+        {/* <div className="flex items-center"> */}
+          {puzzle.difficulty} • {puzzle.gridSize}x{puzzle.gridSize}
           <Timer isRunning={isTimerRunning} onTimeUpdate={setCurrentTime} />
           <HintButton hintsRemaining={4 - hintsUsed} onUseHint={onRequestHint} />
-        </div>
+        {/* </div> */}
       </div>
 
       {/* Main Grid Area */}

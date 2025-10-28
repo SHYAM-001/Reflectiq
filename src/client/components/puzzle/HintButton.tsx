@@ -25,7 +25,7 @@ export const HintButton = ({ hintsRemaining, onUseHint }: HintButtonProps) => {
     if (hintsUsed === 4) return 'Exit cell is now visible!';
     if (hintsUsed === 3) return 'One more hint to reveal exit';
     if (hintsUsed >= 1) return `${4 - hintsUsed} more hints to reveal exit`;
-    return 'Use 4 hints to reveal the exit cell';
+    // return 'Use 4 hints to reveal the exit cell';
   };
 
   return (
@@ -45,7 +45,7 @@ export const HintButton = ({ hintsRemaining, onUseHint }: HintButtonProps) => {
       </Button>
 
       {/* Progress bar for exit reveal */}
-      <div className="flex flex-col items-end space-y-1">
+      {/* <div className="flex flex-col items-end space-y-1">
         <div className="flex space-x-1">
           {[...Array(4)].map((_, i) => (
             <div
@@ -70,7 +70,7 @@ export const HintButton = ({ hintsRemaining, onUseHint }: HintButtonProps) => {
             </>
           )}
         </div>
-      </div>
+      </div> */}
     </div>
   );
 };
