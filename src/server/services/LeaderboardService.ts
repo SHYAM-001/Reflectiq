@@ -338,59 +338,6 @@ export class LeaderboardService {
   }
 
   /**
-   * Remove old leaderboard entries (cleanup)
-   * Requirements: 9.3, 9.5
-   */
-  public async cleanupOldLeaderboards(daysToKeep: number = 7): Promise<number> {
-    try {
-      let cleanedCount = 0;
-      const cutoffDate = new Date();
-      cutoffDate.setDate(cutoffDate.getDate() - daysToKeep);
-
-      // Clean up daily leaderboards for the past 30 days (beyond the keep period)
-      for (let i = daysToKeep; i <= 30; i++) {
-        const cleanupDate = new Date();
-        cleanupDate.setDate(cleanupDate.getDate() - i);
-        const dateStr = cleanupDate.toISOString().split('T')[0];
-
-        const dailyKey = `reflectiq:leaderboard:daily:${dateStr}`;
-
-        try {
-          const exists = await redis.exists(dailyKey);
-          if (exists) {
-            await redis.del(dailyKey);
-            cleanedCount++;
-            console.log(`Cleaned up old daily leaderboard: ${dailyKey}`);
-          }
-        } catch (error) {
-          console.warn(`Failed to cleanup ${dailyKey}:`, error);
-        }
-
-        // Also clean up individual puzzle leaderboards
-        for (const difficulty of ['easy', 'medium', 'hard']) {
-          const puzzleKey = `reflectiq:leaderboard:puzzle_${difficulty}_${dateStr}`;
-          try {
-            const exists = await redis.exists(puzzleKey);
-            if (exists) {
-              await redis.del(puzzleKey);
-              cleanedCount++;
-              console.log(`Cleaned up old puzzle leaderboard: ${puzzleKey}`);
-            }
-          } catch (error) {
-            console.warn(`Failed to cleanup ${puzzleKey}:`, error);
-          }
-        }
-      }
-
-      console.log(`Cleaned up ${cleanedCount} old leaderboard entries`);
-      return cleanedCount;
-    } catch (error) {
-      console.error('Error cleaning up old leaderboards:', error);
-      return 0;
-    }
-  }
-
-  /**
    * Get leaderboard statistics for monitoring
    * Requirements: 9.3, 9.5
    */
@@ -433,6 +380,265 @@ export class LeaderboardService {
         puzzleStats: { easy: 0, medium: 0, hard: 0 },
         totalSubmissions: 0,
       };
+    }
+  }
+
+  /**
+   * Atomic score update with consistency checks
+   * Requirements: 9.3, 9.5
+   */
+  public async atomicScoreUpdate(
+    puzzleId: string,
+    userId: string,
+    score: number,
+    submission: Submission
+  ): Promise<{ success: boolean; previousScore?: number; error?: string }> {
+    try {
+      const puzzleLeaderboardKey = `reflectiq:leaderboard:${puzzleId}`;
+      const dailyLeaderboardKey = `reflectiq:leaderboard:daily:${submission.timestamp.toISOString().split('T')[0]}`;
+      const submissionKey = `reflectiq:submissions:${puzzleId}`;
+
+      // Get previous score for comparison
+      const previousScore = await redis.zScore(puzzleLeaderboardKey, userId);
+
+      // Only update if new score is better (higher)
+      if (previousScore !== null && score <= previousScore) {
+        return {
+          success: false,
+          previousScore,
+          error: 'New score is not better than existing score',
+        };
+      }
+
+      // Use Redis transaction for atomic updates
+      const multi = redis.multi();
+
+      // Update puzzle leaderboard
+      multi.zAdd(puzzleLeaderboardKey, { member: userId, score });
+
+      // Update daily combined leaderboard (format: "username:difficulty")
+      const dailyMember = `${userId}:${submission.difficulty}`;
+      multi.zAdd(dailyLeaderboardKey, { member: dailyMember, score });
+
+      // Store submission data
+      multi.hSet(submissionKey, userId, JSON.stringify(submission));
+
+      // Set expiration policies
+      multi.expire(puzzleLeaderboardKey, 604800); // 7 days
+      multi.expire(dailyLeaderboardKey, 2592000); // 30 days
+      multi.expire(submissionKey, 604800); // 7 days
+
+      // Execute transaction
+      await multi.exec();
+
+      console.log(
+        `Atomic score update completed for ${userId} in ${puzzleId}: ${score} (previous: ${previousScore})`
+      );
+
+      return {
+        success: true,
+        previousScore: previousScore || 0,
+      };
+    } catch (error) {
+      console.error('Error in atomic score update:', error);
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Data consistency check and repair mechanism
+   * Requirements: 9.3, 9.5
+   */
+  public async performConsistencyCheck(date: string): Promise<{
+    success: boolean;
+    issues: string[];
+    repaired: string[];
+    error?: string;
+  }> {
+    try {
+      const issues: string[] = [];
+      const repaired: string[] = [];
+
+      const dailyLeaderboardKey = `reflectiq:leaderboard:daily:${date}`;
+      const difficulties = ['easy', 'medium', 'hard'];
+
+      // Check each difficulty's puzzle leaderboard
+      for (const difficulty of difficulties) {
+        const puzzleId = `puzzle_${difficulty}_${date}`;
+        const puzzleLeaderboardKey = `reflectiq:leaderboard:${puzzleId}`;
+        const submissionKey = `reflectiq:submissions:${puzzleId}`;
+
+        // Get all members from puzzle leaderboard
+        const puzzleMembers = await redis.zRange(puzzleLeaderboardKey, 0, -1, { withScores: true });
+
+        for (const member of puzzleMembers) {
+          if (typeof member === 'object' && 'member' in member && 'score' in member) {
+            const userId = member.member;
+            const score = member.score;
+
+            // Check if submission data exists
+            const submissionData = await redis.hGet(submissionKey, userId);
+
+            if (!submissionData) {
+              issues.push(`Missing submission data for ${userId} in ${puzzleId}`);
+
+              // Try to repair by removing from leaderboard
+              await redis.zRem(puzzleLeaderboardKey, userId);
+              await redis.zRem(dailyLeaderboardKey, `${userId}:${difficulty}`);
+              repaired.push(`Removed orphaned leaderboard entry for ${userId} in ${puzzleId}`);
+              continue;
+            }
+
+            try {
+              const submission: Submission = JSON.parse(submissionData);
+
+              // Verify score consistency
+              if (submission.score !== score) {
+                issues.push(
+                  `Score mismatch for ${userId} in ${puzzleId}: leaderboard=${score}, submission=${submission.score}`
+                );
+
+                // Repair by updating leaderboard with submission score
+                await redis.zAdd(puzzleLeaderboardKey, { member: userId, score: submission.score });
+                await redis.zAdd(dailyLeaderboardKey, {
+                  member: `${userId}:${difficulty}`,
+                  score: submission.score,
+                });
+                repaired.push(`Fixed score mismatch for ${userId} in ${puzzleId}`);
+              }
+
+              // Check if daily leaderboard entry exists
+              const dailyScore = await redis.zScore(dailyLeaderboardKey, `${userId}:${difficulty}`);
+              if (dailyScore === null) {
+                issues.push(`Missing daily leaderboard entry for ${userId}:${difficulty}`);
+
+                // Repair by adding to daily leaderboard
+                await redis.zAdd(dailyLeaderboardKey, {
+                  member: `${userId}:${difficulty}`,
+                  score: submission.score,
+                });
+                repaired.push(`Added missing daily leaderboard entry for ${userId}:${difficulty}`);
+              }
+            } catch (parseError) {
+              issues.push(`Invalid submission data for ${userId} in ${puzzleId}`);
+
+              // Remove corrupted data
+              await redis.hDel(submissionKey, userId);
+              await redis.zRem(puzzleLeaderboardKey, userId);
+              await redis.zRem(dailyLeaderboardKey, `${userId}:${difficulty}`);
+              repaired.push(`Removed corrupted data for ${userId} in ${puzzleId}`);
+            }
+          }
+        }
+      }
+
+      // Check for orphaned daily leaderboard entries
+      const dailyMembers = await redis.zRange(dailyLeaderboardKey, 0, -1);
+
+      for (const dailyMember of dailyMembers) {
+        if (typeof dailyMember === 'string') {
+          const [userId, difficulty] = dailyMember.split(':');
+
+          if (!userId || !difficulty || !difficulties.includes(difficulty)) {
+            issues.push(`Invalid daily leaderboard entry format: ${dailyMember}`);
+
+            // Remove invalid entry
+            await redis.zRem(dailyLeaderboardKey, dailyMember);
+            repaired.push(`Removed invalid daily leaderboard entry: ${dailyMember}`);
+            continue;
+          }
+
+          const puzzleId = `puzzle_${difficulty}_${date}`;
+          const puzzleScore = await redis.zScore(`reflectiq:leaderboard:${puzzleId}`, userId);
+
+          if (puzzleScore === null) {
+            issues.push(`Orphaned daily leaderboard entry: ${dailyMember}`);
+
+            // Remove orphaned entry
+            await redis.zRem(dailyLeaderboardKey, dailyMember);
+            repaired.push(`Removed orphaned daily leaderboard entry: ${dailyMember}`);
+          }
+        }
+      }
+
+      console.log(
+        `Consistency check for ${date}: ${issues.length} issues found, ${repaired.length} repairs made`
+      );
+
+      return {
+        success: true,
+        issues,
+        repaired,
+      };
+    } catch (error) {
+      console.error('Error in consistency check:', error);
+      return {
+        success: false,
+        issues: [],
+        repaired: [],
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  /**
+   * Cleanup old leaderboards with data retention policies
+   * Requirements: 9.5
+   */
+  public async cleanupOldLeaderboards(retentionDays: number): Promise<number> {
+    try {
+      let cleanedCount = 0;
+      const cutoffDate = new Date();
+      cutoffDate.setDate(cutoffDate.getDate() - retentionDays);
+
+      // Generate list of dates to check for cleanup
+      const datesToCheck: string[] = [];
+      for (let i = retentionDays; i <= retentionDays + 30; i++) {
+        const checkDate = new Date();
+        checkDate.setDate(checkDate.getDate() - i);
+        datesToCheck.push(checkDate.toISOString().split('T')[0]);
+      }
+
+      for (const date of datesToCheck) {
+        const dailyKey = `reflectiq:leaderboard:daily:${date}`;
+        const exists = await redis.exists(dailyKey);
+
+        if (exists) {
+          // Delete daily leaderboard
+          await redis.del(dailyKey);
+          cleanedCount++;
+
+          // Delete individual puzzle leaderboards for this date
+          for (const difficulty of ['easy', 'medium', 'hard']) {
+            const puzzleId = `puzzle_${difficulty}_${date}`;
+            const puzzleKey = `reflectiq:leaderboard:${puzzleId}`;
+            const submissionKey = `reflectiq:submissions:${puzzleId}`;
+
+            const puzzleExists = await redis.exists(puzzleKey);
+            const submissionExists = await redis.exists(submissionKey);
+
+            if (puzzleExists) {
+              await redis.del(puzzleKey);
+              cleanedCount++;
+            }
+
+            if (submissionExists) {
+              await redis.del(submissionKey);
+              cleanedCount++;
+            }
+          }
+
+          console.log(`Cleaned up leaderboard data for ${date}`);
+        }
+      }
+
+      return cleanedCount;
+    } catch (error) {
+      console.error('Error cleaning up old leaderboards:', error);
+      return 0;
     }
   }
 }

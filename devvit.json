@@ -54,11 +54,18 @@
         "endpoint": "/internal/menu/post-create"
       },
       {
-        "label": "View Leaderboard",
-        "description": "View current puzzle leaderboards",
+        "label": "📊 Daily Leaderboard",
+        "description": "View today's puzzle leaderboard",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/leaderboard"
+      },
+      {
+        "label": "🏆 Weekly Leaderboard",
+        "description": "View this week's top performers",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/weekly-leaderboard"
       }
     ]
   },

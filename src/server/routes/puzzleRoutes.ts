@@ -8,6 +8,7 @@ import { Router } from 'express';
 import { context } from '@devvit/web/server';
 import { redisClient } from '../utils/redisClient.js';
 import PuzzleRepository from '../data/PuzzleRepository.js';
+import { LeaderboardService } from '../services/LeaderboardService.js';
 import SessionRepository from '../data/SessionRepository.js';
 import {
   asyncHandler,
@@ -346,28 +347,51 @@ router.post(
       console.warn('Failed to store submission:', error);
     }
 
-    // Update leaderboard if score > 0
+    // Update leaderboard if score > 0 using atomic operations
     let leaderboardPosition: number | undefined;
     if (finalScore > 0) {
       try {
-        await redisClient.zAdd(
-          `leaderboard:${sessionData.puzzleId}`,
+        const leaderboardService = LeaderboardService.getInstance();
+
+        // Use atomic score update for consistency
+        const updateResult = await leaderboardService.atomicScoreUpdate(
+          sessionData.puzzleId,
           sessionData.userId,
-          finalScore
+          finalScore,
+          submission
         );
-        await redisClient.expire(`leaderboard:${sessionData.puzzleId}`, 604800);
 
-        // Also update daily leaderboard
-        const today = new Date().toISOString().split('T')[0];
-        await redisClient.zAdd(
-          `leaderboard:daily:${today}`,
-          `${sessionData.userId}:${sessionData.difficulty}`,
-          finalScore
-        );
-        await redisClient.expire(`leaderboard:daily:${today}`, 604800);
+        if (updateResult.success) {
+          // Get leaderboard position
+          try {
+            const position = await leaderboardService.getUserPuzzleRank(
+              sessionData.puzzleId,
+              sessionData.userId
+            );
+            leaderboardPosition = position || undefined;
+          } catch (rankError) {
+            console.warn('Failed to get leaderboard position:', rankError);
+            leaderboardPosition = 1; // Fallback
+          }
+        } else {
+          console.warn('Atomic score update failed:', updateResult.error);
+          // Fallback to direct Redis operations for backward compatibility
+          await redisClient.zAdd(
+            `leaderboard:${sessionData.puzzleId}`,
+            sessionData.userId,
+            finalScore
+          );
+          await redisClient.expire(`leaderboard:${sessionData.puzzleId}`, 604800);
 
-        // Get leaderboard position (simplified for now)
-        leaderboardPosition = 1; // TODO: Implement proper ranking with new Redis client
+          const today = new Date().toISOString().split('T')[0];
+          await redisClient.zAdd(
+            `leaderboard:daily:${today}`,
+            `${sessionData.userId}:${sessionData.difficulty}`,
+            finalScore
+          );
+          await redisClient.expire(`leaderboard:daily:${today}`, 604800);
+          leaderboardPosition = 1;
+        }
       } catch (error) {
         console.warn('Failed to update leaderboard:', error);
       }

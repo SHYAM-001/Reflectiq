@@ -1,6 +1,7 @@
 import express from 'express';
 import { InitResponse, IncrementResponse, DecrementResponse } from '../shared/types/api';
 import { reddit, createServer, context, getServerPort } from '@devvit/web/server';
+import { UIResponse } from '@devvit/web/shared';
 import { redisClient } from './utils/redisClient.js';
 import { createPost } from './core/post';
 import { PuzzleService } from './services/PuzzleService.js';
@@ -24,7 +25,7 @@ const router = express.Router();
 async function archiveCompletedPuzzleData(
   date: string,
   stats: any,
-  leaderboardEntries: any[]
+  leaderboardEntries: unknown[]
 ): Promise<void> {
   try {
     // Create archived summary data
@@ -179,37 +180,392 @@ router.post('/internal/on-app-install', async (_req, res): Promise<void> => {
   }
 });
 
-router.post('/internal/menu/post-create', async (_req, res): Promise<void> => {
-  try {
-    const post = await createPost();
+router.post(
+  '/internal/menu/post-create',
+  async (_req, res: express.Response<UIResponse>): Promise<void> => {
+    try {
+      const post = await createPost();
 
-    res.json({
-      navigateTo: `https://reddit.com/r/${context.subredditName || 'unknown'}/comments/${post.id}`,
-    });
-  } catch (error) {
-    console.error(`Error creating post: ${error}`);
-    res.status(400).json({
-      status: 'error',
-      message: 'Failed to create post',
-    });
+      res.json({
+        showToast: {
+          text: 'ReflectIQ puzzle post created successfully!',
+          appearance: 'success',
+        },
+        navigateTo: `https://reddit.com/r/${context.subredditName || 'unknown'}/comments/${post.id}`,
+      });
+    } catch (error) {
+      console.error(`Error creating post: ${error}`);
+      res.json({
+        showToast: {
+          text: 'Failed to create puzzle post. Please try again.',
+          appearance: 'neutral',
+        },
+      });
+    }
   }
-});
+);
 
-router.post('/internal/menu/leaderboard', async (_req, res): Promise<void> => {
-  try {
-    // TODO: Implement leaderboard view logic
-    res.json({
-      status: 'success',
-      message: 'Leaderboard functionality coming soon',
-    });
-  } catch (error) {
-    console.error(`Error accessing leaderboard: ${error}`);
-    res.status(400).json({
-      status: 'error',
-      message: 'Failed to access leaderboard',
-    });
+router.post(
+  '/internal/menu/leaderboard',
+  async (_req, res: express.Response<UIResponse>): Promise<void> => {
+    try {
+      console.log(`Leaderboard menu action triggered at ${new Date().toISOString()}`);
+
+      if (!context.subredditName) {
+        res.json({
+          showToast: {
+            text: 'Error: Subreddit context not available',
+            appearance: 'neutral',
+          },
+        });
+        return;
+      }
+
+      // Get today's date for the leaderboard
+      const today = new Date().toISOString().split('T')[0];
+
+      // Get leaderboard service
+      const leaderboardService = LeaderboardService.getInstance();
+
+      // Get daily leaderboard data
+      const leaderboardResult = await leaderboardService.getDailyLeaderboard(today, 10);
+
+      if (!leaderboardResult.entries || leaderboardResult.entries.length === 0) {
+        console.log(`No leaderboard data available for ${today}`);
+
+        // Create a post encouraging participation even if no data
+        const emptyLeaderboardText = `# 🏆 ReflectIQ Daily Leaderboard - ${today}
+
+**No submissions yet today!** 🎯
+
+Be the first to solve today's ReflectIQ puzzle and claim the top spot on the leaderboard!
+
+## 🎮 How to Get Started:
+1. **Find today's puzzle post** in the subreddit
+2. **Click the post** to open the interactive puzzle
+3. **Trace the laser path** through mirrors and materials
+4. **Submit your answer** as a comment with format: \`Exit: [Cell]\`
+
+## 🏆 Scoring System:
+- **Base Score:** Easy (150), Medium (400), Hard (800) points
+- **Time Bonus:** Faster completion = higher score
+- **Hint Penalty:** Each hint reduces your score multiplier
+
+## 💡 Tips for Success:
+- Start with Easy difficulty to learn the mechanics
+- Think about laser physics - angles of reflection
+- Use hints strategically if you get stuck
+- Try to solve without hints for maximum points
+
+---
+
+**Ready to compete?** Find today's puzzle and start playing! 🔦✨`;
+
+        const post = await reddit.submitPost({
+          subredditName: context.subredditName,
+          title: `🏆 Daily ReflectIQ Leaderboard - ${today} | Be the First!`,
+          text: emptyLeaderboardText,
+        });
+
+        console.log(`Empty leaderboard post created: ${post.id}`);
+
+        res.json({
+          showToast: {
+            text: 'Leaderboard post created! Be the first to play today!',
+            appearance: 'success',
+          },
+          navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
+        });
+        return;
+      }
+
+      const entries = leaderboardResult.entries;
+
+      // Get leaderboard statistics
+      const stats = await leaderboardService.getLeaderboardStats(today);
+
+      // Format leaderboard as Reddit post content
+      let postContent = `# 🏆 ReflectIQ Daily Leaderboard - ${today}
+
+**Today's Top Puzzle Solvers!** 🎯
+
+## 📊 Daily Statistics:
+- **Total Players:** ${stats.dailyPlayers}
+- **Total Submissions:** ${stats.totalSubmissions}
+- **Easy Puzzles:** ${stats.puzzleStats.easy} players
+- **Medium Puzzles:** ${stats.puzzleStats.medium} players  
+- **Hard Puzzles:** ${stats.puzzleStats.hard} players
+
+## 🥇 Top 10 Performers:
+
+| Rank | Player | Difficulty | Score | Time | Hints |
+|------|--------|------------|-------|------|-------|`;
+
+      entries.forEach((entry, index) => {
+        const rank = index + 1;
+        const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
+        const timeFormatted = `${Math.floor(entry.time / 60)}:${(entry.time % 60).toString().padStart(2, '0')}`;
+
+        postContent += `\n| ${medal} | u/${entry.username} | ${entry.difficulty} | ${entry.score} | ${timeFormatted} | ${entry.hints} |`;
+      });
+
+      postContent += `
+
+---
+
+## 🎯 How to Play ReflectIQ:
+1. **Find today's puzzle post** and click to start playing
+2. **Guide the laser** from entry to exit using mirrors and materials
+3. **Submit your answer** as a comment: \`Exit: [Cell]\`
+4. **Climb the leaderboard** with faster times and fewer hints!
+
+## 💡 Scoring Tips:
+- **No hints used:** 100% score multiplier
+- **1-2 hints:** 80-60% score multiplier  
+- **3-4 hints:** 40-20% score multiplier
+- **Speed bonus:** Faster completion = higher final score
+
+## 🔄 Daily Challenge:
+New puzzles are posted every day at midnight. Come back tomorrow for fresh challenges!
+
+*Good luck, and may the laser be with you!* ⚡✨`;
+
+      // Create the leaderboard post
+      const post = await reddit.submitPost({
+        subredditName: context.subredditName,
+        title: `🏆 Daily ReflectIQ Leaderboard - ${today}`,
+        text: postContent,
+      });
+
+      console.log(`Leaderboard post created successfully: ${post.id}`);
+
+      // Return success response with navigation
+      res.json({
+        showToast: {
+          text: `Leaderboard posted! ${entries.length} players featured.`,
+          appearance: 'success',
+        },
+        navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
+      });
+    } catch (error) {
+      console.error(`Error creating leaderboard post: ${error}`);
+
+      // Return error toast
+      res.json({
+        showToast: {
+          text: 'Failed to create leaderboard post. Please try again.',
+          appearance: 'neutral',
+        },
+      });
+    }
   }
-});
+);
+
+// Weekly leaderboard menu action
+router.post(
+  '/internal/menu/weekly-leaderboard',
+  async (_req, res: express.Response<UIResponse>): Promise<void> => {
+    try {
+      console.log(`Weekly leaderboard menu action triggered at ${new Date().toISOString()}`);
+
+      if (!context.subredditName) {
+        res.json({
+          showToast: {
+            text: 'Error: Subreddit context not available',
+            appearance: 'neutral',
+          },
+        });
+        return;
+      }
+
+      // Get this week's date range (Sunday to Saturday)
+      const today = new Date();
+      const weekStart = new Date(today);
+      weekStart.setDate(today.getDate() - today.getDay()); // Start of week (Sunday)
+      const weekEnd = new Date(weekStart);
+      weekEnd.setDate(weekStart.getDate() + 6); // End of week (Saturday)
+
+      const weekStartStr = weekStart.toISOString().split('T')[0];
+      const weekEndStr = weekEnd.toISOString().split('T')[0];
+
+      // Get leaderboard service
+      const leaderboardService = LeaderboardService.getInstance();
+
+      // Aggregate weekly data by collecting daily leaderboards
+      const weeklyData: {
+        [username: string]: {
+          totalScore: number;
+          puzzlesSolved: number;
+          bestTime: number;
+          difficulties: Set<string>;
+        };
+      } = {};
+
+      // Collect data for each day of the week
+      for (let d = new Date(weekStart); d <= weekEnd; d.setDate(d.getDate() + 1)) {
+        const dateStr = d.toISOString().split('T')[0];
+
+        try {
+          const dailyLeaderboard = await leaderboardService.getDailyLeaderboard(dateStr, 50); // Get more entries for aggregation
+
+          for (const entry of dailyLeaderboard.entries) {
+            if (!weeklyData[entry.username]) {
+              weeklyData[entry.username] = {
+                totalScore: 0,
+                puzzlesSolved: 0,
+                bestTime: entry.time,
+                difficulties: new Set(),
+              };
+            }
+
+            weeklyData[entry.username].totalScore += entry.score;
+            weeklyData[entry.username].puzzlesSolved += 1;
+            weeklyData[entry.username].bestTime = Math.min(
+              weeklyData[entry.username].bestTime,
+              entry.time
+            );
+            weeklyData[entry.username].difficulties.add(entry.difficulty);
+          }
+        } catch (error) {
+          console.warn(`Failed to get daily leaderboard for ${dateStr}:`, error);
+        }
+      }
+
+      // Convert to sorted array
+      const weeklyEntries = Object.entries(weeklyData)
+        .map(([username, data]) => ({
+          username,
+          totalScore: data.totalScore,
+          puzzlesSolved: data.puzzlesSolved,
+          bestTime: data.bestTime,
+          avgDifficulty: Array.from(data.difficulties).join(', '),
+        }))
+        .sort((a, b) => b.totalScore - a.totalScore)
+        .slice(0, 15); // Top 15 for weekly
+
+      if (weeklyEntries.length === 0) {
+        // Create a post encouraging participation
+        const emptyWeeklyText = `# 🏆 ReflectIQ Weekly Leaderboard
+
+**Week of ${weekStartStr} to ${weekEndStr}**
+
+**No submissions this week yet!** 🎯
+
+Be the first to solve this week's ReflectIQ puzzles and dominate the weekly leaderboard!
+
+## 🎮 How to Compete:
+1. **Play daily puzzles** throughout the week
+2. **Solve multiple difficulties** for maximum points
+3. **Aim for speed and accuracy** to boost your scores
+4. **Use fewer hints** for better score multipliers
+
+## 🏆 Weekly Competition:
+- **Total Score:** Sum of all your daily puzzle scores
+- **Puzzles Solved:** Number of puzzles completed this week
+- **Best Time:** Your fastest puzzle completion
+- **Variety Bonus:** Playing different difficulties
+
+## 📅 This Week's Challenge:
+New puzzles are posted daily at midnight. The more you play, the higher you climb!
+
+---
+
+**Ready to start your weekly climb?** Find today's puzzle and begin your journey to the top! 🚀✨`;
+
+        const post = await reddit.submitPost({
+          subredditName: context.subredditName,
+          title: `🏆 Weekly ReflectIQ Leaderboard - Week ${weekStartStr}`,
+          text: emptyWeeklyText,
+        });
+
+        console.log(`Empty weekly leaderboard post created: ${post.id}`);
+
+        res.json({
+          showToast: {
+            text: 'Weekly leaderboard posted! Be the first to compete this week!',
+            appearance: 'success',
+          },
+          navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
+        });
+        return;
+      }
+
+      // Format weekly leaderboard as Reddit post content
+      let postContent = `# 🏆 ReflectIQ Weekly Leaderboard
+
+**Week of ${weekStartStr} to ${weekEndStr}**
+
+**This Week's Top Puzzle Masters!** 🎯
+
+## 📊 Weekly Statistics:
+- **Active Players:** ${weeklyEntries.length}
+- **Total Puzzles Solved:** ${weeklyEntries.reduce((sum, entry) => sum + entry.puzzlesSolved, 0)}
+- **Average Score:** ${weeklyEntries.length > 0 ? Math.round(weeklyEntries.reduce((sum, entry) => sum + entry.totalScore, 0) / weeklyEntries.length) : 0}
+
+## 🥇 Top 15 Weekly Performers:
+
+| Rank | Player | Total Score | Puzzles Solved | Best Time | Difficulties |
+|------|--------|-------------|----------------|-----------|--------------|`;
+
+      weeklyEntries.forEach((entry, index) => {
+        const rank = index + 1;
+        const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
+        const bestTimeFormatted = `${Math.floor(entry.bestTime / 60)}:${(entry.bestTime % 60).toString().padStart(2, '0')}`;
+
+        postContent += `\n| ${medal} | u/${entry.username} | ${entry.totalScore} | ${entry.puzzlesSolved} | ${bestTimeFormatted} | ${entry.avgDifficulty} |`;
+      });
+
+      postContent += `
+
+---
+
+## 🎯 Weekly Competition Rules:
+- **Play Daily:** Each day's puzzle contributes to your weekly total
+- **Multiple Difficulties:** Try Easy, Medium, and Hard for variety
+- **Consistency Wins:** Regular play beats occasional high scores
+- **Speed Matters:** Faster completion times boost your ranking
+
+## 💡 Weekly Strategy Tips:
+- **Start Early:** More days = more opportunities to score
+- **Mix Difficulties:** Don't stick to just one level
+- **Learn from Mistakes:** Each puzzle teaches new techniques
+- **Use Hints Wisely:** Sometimes a small penalty beats getting stuck
+
+## 🔄 Weekly Reset:
+The weekly leaderboard resets every Sunday. New week, new chances to climb to the top!
+
+*Keep playing daily puzzles to maintain your weekly ranking!* ⚡🏆`;
+
+      // Create the weekly leaderboard post
+      const post = await reddit.submitPost({
+        subredditName: context.subredditName,
+        title: `🏆 Weekly ReflectIQ Leaderboard - Week ${weekStartStr}`,
+        text: postContent,
+      });
+
+      console.log(`Weekly leaderboard post created successfully: ${post.id}`);
+
+      // Return success response with navigation
+      res.json({
+        showToast: {
+          text: `Weekly leaderboard posted! ${weeklyEntries.length} players featured.`,
+          appearance: 'success',
+        },
+        navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
+      });
+    } catch (error) {
+      console.error(`Error creating weekly leaderboard post: ${error}`);
+
+      // Return error toast
+      res.json({
+        showToast: {
+          text: 'Failed to create weekly leaderboard post. Please try again.',
+          appearance: 'neutral',
+        },
+      });
+    }
+  }
+);
 
 // Scheduler endpoints
 router.post('/internal/scheduler/generate-puzzles', async (_req, res): Promise<void> => {
