@@ -1,32 +1,39 @@
-import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "../components/ui/table";
-import { Badge } from "../components/ui/badge";
-import { Trophy, Medal, Award, ArrowLeft, Timer, Target } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Button } from '../components/ui/button';
+import { Card } from '../components/ui/card';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '../components/ui/table';
+import { Trophy, Medal, Award, ArrowLeft, Timer, Target } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import ApiService from '../services/api';
+import DifficultyBadge from '../components/DifficultyBadge';
+import {
+  validateLeaderboardPostData,
+  createFallbackLeaderboardData,
+} from '../../shared/utils/postDataValidation';
 
 interface LeaderboardEntry {
   rank: number;
   username: string;
   time: string;
-  difficulty: "easy" | "medium" | "hard";
+  difficulty: 'easy' | 'medium' | 'hard' | 'mixed';
   hintsUsed: number;
   score: number;
 }
 
-// Sample data - in production this would come from a backend
-const sampleLeaderboard: LeaderboardEntry[] = [
-  { rank: 1, username: "LaserMaster", time: "02:34", difficulty: "hard", hintsUsed: 0, score: 9850 },
-  { rank: 2, username: "ReflectPro", time: "03:12", difficulty: "hard", hintsUsed: 1, score: 9200 },
-  { rank: 3, username: "MirrorMage", time: "02:56", difficulty: "medium", hintsUsed: 0, score: 8900 },
-  { rank: 4, username: "PhysicsPhenom", time: "04:21", difficulty: "hard", hintsUsed: 2, score: 8450 },
-  { rank: 5, username: "LightBender", time: "03:45", difficulty: "medium", hintsUsed: 1, score: 8100 },
-  { rank: 6, username: "OpticsSage", time: "05:08", difficulty: "medium", hintsUsed: 2, score: 7650 },
-  { rank: 7, username: "BeamWizard", time: "06:22", difficulty: "easy", hintsUsed: 0, score: 7200 },
-  { rank: 8, username: "PrismPilot", time: "04:55", difficulty: "medium", hintsUsed: 3, score: 6950 },
-  { rank: 9, username: "RefractionKing", time: "07:11", difficulty: "easy", hintsUsed: 1, score: 6700 },
-  { rank: 10, username: "SpectrumSeeker", time: "08:34", difficulty: "easy", hintsUsed: 2, score: 6200 },
-];
+interface LeaderboardStats {
+  fastestTime: string;
+  topScore: number;
+  totalPlayers: number;
+}
+
+// Remove local interface since we're importing it from validation utils
 
 const getRankIcon = (rank: number) => {
   switch (rank) {
@@ -41,20 +48,122 @@ const getRankIcon = (rank: number) => {
   }
 };
 
-const getDifficultyColor = (difficulty: string) => {
-  switch (difficulty) {
-    case "easy":
-      return "bg-material-glass/20 text-material-glass border-material-glass/30";
-    case "medium":
-      return "bg-material-water/20 text-material-water border-material-water/30";
-    case "hard":
-      return "bg-laser/20 text-laser border-laser/30";
-    default:
-      return "bg-muted";
-  }
+const formatTime = (seconds: number): string => {
+  const minutes = Math.floor(seconds / 60);
+  const remainingSeconds = seconds % 60;
+  return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
 };
 
 export default function Leaderboard() {
+  const [leaderboardData, setLeaderboardData] = useState<LeaderboardEntry[]>([]);
+  const [stats, setStats] = useState<LeaderboardStats>({
+    fastestTime: '00:00',
+    topScore: 0,
+    totalPlayers: 0,
+  });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchLeaderboardData = async () => {
+      try {
+        setLoading(true);
+
+        // First try to get postData from Devvit context
+        const contextResponse = await fetch('/api/post-context');
+        const contextData = await contextResponse.json();
+
+        if (contextData.postData && validateLeaderboardPostData(contextData.postData)) {
+          // Use validated postData from custom post
+          const postData = contextData.postData;
+          setLeaderboardData(postData.entries);
+          setStats(postData.stats);
+        } else if (contextData.postData && contextData.postData.type === 'leaderboard') {
+          // Invalid postData, use fallback
+          console.warn('Invalid leaderboard postData, using fallback');
+          const fallbackData = createFallbackLeaderboardData();
+          setLeaderboardData(fallbackData.entries);
+          setStats(fallbackData.stats);
+          setError('Invalid leaderboard data format');
+        } else {
+          // Fallback to API call for standalone usage
+          const apiService = ApiService.getInstance();
+          const today = new Date().toISOString().split('T')[0];
+          const response = await apiService.getDailyLeaderboard(today, 10);
+
+          if (response.success && response.data) {
+            // Transform backend data to match our interface
+            const transformedData: LeaderboardEntry[] = response.data.leaderboard.map(
+              (
+                entry: {
+                  username: string;
+                  time: number;
+                  difficulty: string;
+                  hints: number;
+                  score: number;
+                },
+                index: number
+              ) => ({
+                rank: index + 1,
+                username: entry.username,
+                time: formatTime(entry.time),
+                difficulty: entry.difficulty.toLowerCase() as 'easy' | 'medium' | 'hard',
+                hintsUsed: entry.hints,
+                score: entry.score,
+              })
+            );
+
+            setLeaderboardData(transformedData);
+
+            // Calculate stats from the data
+            if (transformedData.length > 0) {
+              const fastestEntry = transformedData.reduce((fastest, current) =>
+                current.time < fastest.time ? current : fastest
+              );
+              const topScoreEntry = transformedData.reduce((highest, current) =>
+                current.score > highest.score ? current : highest
+              );
+
+              setStats({
+                fastestTime: fastestEntry.time,
+                topScore: topScoreEntry.score,
+                totalPlayers: response.data.totalPlayers || transformedData.length,
+              });
+            }
+          } else {
+            // Use validated fallback data if no real data available
+            const fallbackData = createFallbackLeaderboardData();
+            setLeaderboardData(fallbackData.entries);
+            setStats(fallbackData.stats);
+          }
+        }
+      } catch (err) {
+        console.error('Error fetching leaderboard:', err);
+        setError('Failed to load leaderboard data');
+
+        // Fallback to validated sample data on error
+        const fallbackData = createFallbackLeaderboardData();
+        setLeaderboardData(fallbackData.entries);
+        setStats(fallbackData.stats);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void fetchLeaderboardData();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-bg flex flex-col items-center justify-center p-4">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+          <p className="text-muted-foreground">Loading leaderboard...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gradient-bg flex flex-col items-center justify-start p-4 md:p-8 overflow-auto">
       {/* Animated Background Particles */}
@@ -83,13 +192,14 @@ export default function Leaderboard() {
               Back to Game
             </Button>
           </Link>
-          
+
           <h1 className="font-montserrat font-bold text-5xl md:text-7xl mb-3 bg-gradient-primary bg-clip-text text-transparent animate-shimmer bg-[length:200%_100%]">
             Leaderboard
           </h1>
           <p className="text-muted-foreground text-lg font-poppins">
             Top solvers across all difficulties
           </p>
+          {error && <p className="text-yellow-400 text-sm mt-2">{error} - Showing sample data</p>}
         </div>
 
         {/* Stats Cards */}
@@ -101,7 +211,7 @@ export default function Leaderboard() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Fastest Time</p>
-                <p className="text-2xl font-orbitron font-bold text-primary">02:34</p>
+                <p className="text-2xl font-orbitron font-bold text-primary">{stats.fastestTime}</p>
               </div>
             </div>
           </Card>
@@ -113,7 +223,9 @@ export default function Leaderboard() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Top Score</p>
-                <p className="text-2xl font-orbitron font-bold text-laser">9,850</p>
+                <p className="text-2xl font-orbitron font-bold text-laser">
+                  {stats.topScore.toLocaleString()}
+                </p>
               </div>
             </div>
           </Card>
@@ -125,7 +237,9 @@ export default function Leaderboard() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">Total Players</p>
-                <p className="text-2xl font-orbitron font-bold text-primary-light">1,247</p>
+                <p className="text-2xl font-orbitron font-bold text-primary-light">
+                  {stats.totalPlayers.toLocaleString()}
+                </p>
               </div>
             </div>
           </Card>
@@ -139,48 +253,76 @@ export default function Leaderboard() {
                 <TableRow className="border-border hover:bg-transparent">
                   <TableHead className="text-primary font-semibold">Rank</TableHead>
                   <TableHead className="text-primary font-semibold">Player</TableHead>
-                  <TableHead className="text-primary font-semibold hidden md:table-cell">Time</TableHead>
-                  <TableHead className="text-primary font-semibold hidden sm:table-cell">Difficulty</TableHead>
-                  <TableHead className="text-primary font-semibold hidden lg:table-cell">Hints Used</TableHead>
+                  <TableHead className="text-primary font-semibold hidden md:table-cell">
+                    Time
+                  </TableHead>
+                  <TableHead className="text-primary font-semibold hidden sm:table-cell">
+                    Difficulty
+                  </TableHead>
+                  <TableHead className="text-primary font-semibold hidden lg:table-cell">
+                    Hints Used
+                  </TableHead>
                   <TableHead className="text-primary font-semibold text-right">Score</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {sampleLeaderboard.map((entry) => (
-                  <TableRow
-                    key={entry.rank}
-                    className={`border-border transition-all duration-300 ${
-                      entry.rank <= 3
-                        ? "bg-primary/5 hover:bg-primary/10"
-                        : "hover:bg-muted/50"
-                    }`}
-                  >
-                    <TableCell className="font-medium">
-                      <div className="flex items-center justify-center w-10">
-                        {getRankIcon(entry.rank)}
+                {leaderboardData.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-12">
+                      <div className="flex flex-col items-center gap-4">
+                        <div className="p-4 bg-primary/10 rounded-full">
+                          <Trophy className="w-8 h-8 text-primary" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-foreground mb-2">
+                            No submissions yet today!
+                          </h3>
+                          <p className="text-muted-foreground text-sm mb-4">
+                            Be the first to solve today's ReflectIQ puzzle and claim the top spot on
+                            the leaderboard!
+                          </p>
+                          <div className="text-xs text-muted-foreground space-y-1">
+                            <p>🎯 Find today's puzzle post in the subreddit</p>
+                            <p>🔴 Trace the laser path through mirrors and materials</p>
+                            <p>💡 Submit your answer as a comment: Exit: [Cell]</p>
+                          </div>
+                        </div>
                       </div>
                     </TableCell>
-                    <TableCell className="font-poppins font-medium text-foreground">
-                      {entry.username}
-                    </TableCell>
-                    <TableCell className="hidden md:table-cell">
-                      <span className="font-orbitron text-laser">{entry.time}</span>
-                    </TableCell>
-                    <TableCell className="hidden sm:table-cell">
-                      <Badge variant="outline" className={getDifficultyColor(entry.difficulty)}>
-                        {entry.difficulty}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="hidden lg:table-cell text-center">
-                      <span className="text-muted-foreground">{entry.hintsUsed}/4</span>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <span className="font-orbitron font-bold text-primary">
-                        {entry.score.toLocaleString()}
-                      </span>
-                    </TableCell>
                   </TableRow>
-                ))}
+                ) : (
+                  leaderboardData.map((entry) => (
+                    <TableRow
+                      key={entry.rank}
+                      className={`border-border transition-all duration-300 ${
+                        entry.rank <= 3 ? 'bg-primary/5 hover:bg-primary/10' : 'hover:bg-muted/50'
+                      }`}
+                    >
+                      <TableCell className="font-medium">
+                        <div className="flex items-center justify-center w-10">
+                          {getRankIcon(entry.rank)}
+                        </div>
+                      </TableCell>
+                      <TableCell className="font-poppins font-medium text-foreground">
+                        {entry.username}
+                      </TableCell>
+                      <TableCell className="hidden md:table-cell">
+                        <span className="font-orbitron text-laser">{entry.time}</span>
+                      </TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        <DifficultyBadge difficulty={entry.difficulty} size="sm" />
+                      </TableCell>
+                      <TableCell className="hidden lg:table-cell text-center">
+                        <span className="text-muted-foreground">{entry.hintsUsed}/4</span>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <span className="font-orbitron font-bold text-primary">
+                          {entry.score.toLocaleString()}
+                        </span>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
           </div>

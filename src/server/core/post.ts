@@ -12,7 +12,8 @@ interface SplashConfig {
 
 // Generate contextual splash screen based on puzzle type and date
 const generateSplashConfig = (
-  puzzleType: 'daily' | 'special' | 'challenge' = 'daily'
+  puzzleType: 'daily' | 'special' | 'challenge' = 'daily',
+  availableDifficulties?: ('easy' | 'medium' | 'hard')[]
 ): SplashConfig => {
   const today = new Date();
   const formattedDate = today.toLocaleDateString('en-US', {
@@ -37,16 +38,25 @@ const generateSplashConfig = (
   else if (month === 1 && date === 1) eventType = 'newyear';
   else if (isWeekend) eventType = 'weekend';
 
+  // Add difficulty indicators to descriptions
+  const difficultyIndicators = availableDifficulties
+    ? availableDifficulties.map((diff: 'easy' | 'medium' | 'hard') =>
+        diff === 'easy' ? '🟢 Easy' : diff === 'medium' ? '🟡 Medium' : '🔴 Hard'
+      )
+    : [];
+  const difficultyText =
+    difficultyIndicators.length > 0 ? ` | ${difficultyIndicators.join(' • ')}` : '';
+
   // Dynamic content arrays for variety
   const configs = {
     normal: {
       descriptions: [
-        `🔴 ${formattedDate}'s laser challenge awaits! Guide the beam through mirrors, glass, and mysterious materials to discover the exit.`,
-        `⚡ Ready for today's mind-bending puzzle? Trace the laser path through a maze of reflective surfaces and find where it escapes!`,
-        `🎯 ${dayOfWeek}'s brain teaser is here! Master the art of light reflection and solve today's intricate laser maze.`,
-        `🌟 New puzzle, new challenge! Navigate your laser through mirrors, water, and absorbers to reach the exit point.`,
-        `🔬 Physics meets fun! Bend light through materials and discover the science of reflection in today's puzzle.`,
-        `💎 Crystal clear challenge ahead! Use mirrors and glass to guide your laser beam to victory.`,
+        `🔴 ${formattedDate}'s laser challenge awaits${difficultyText}! Guide the beam through mirrors, glass, and mysterious materials to discover the exit.`,
+        `⚡ Ready for today's mind-bending puzzle${difficultyText}? Trace the laser path through a maze of reflective surfaces and find where it escapes!`,
+        `🎯 ${dayOfWeek}'s brain teaser is here${difficultyText}! Master the art of light reflection and solve today's intricate laser maze.`,
+        `🌟 New puzzle, new challenge${difficultyText}! Navigate your laser through mirrors, water, and absorbers to reach the exit point.`,
+        `🔬 Physics meets fun${difficultyText}! Bend light through materials and discover the science of reflection in today's puzzle.`,
+        `💎 Crystal clear challenge ahead${difficultyText}! Use mirrors and glass to guide your laser beam to victory.`,
       ],
       buttons: [
         '🚀 Start Challenge',
@@ -57,12 +67,12 @@ const generateSplashConfig = (
         '🌟 Start Quest',
       ],
       headings: [
-        `🔴 Daily ReflectIQ Challenge`,
-        `⚡ Today's Laser Puzzle`,
-        `🎯 ${dayOfWeek}'s Brain Teaser`,
-        `🌟 ReflectIQ: Light & Logic`,
-        `💎 Crystal Reflection Quest`,
-        `🔬 Physics Puzzle Lab`,
+        `🔴 Daily ReflectIQ Challenge${difficultyText}`,
+        `⚡ Today's Laser Puzzle${difficultyText}`,
+        `🎯 ${dayOfWeek}'s Brain Teaser${difficultyText}`,
+        `🌟 ReflectIQ: Light & Logic${difficultyText}`,
+        `💎 Crystal Reflection Quest${difficultyText}`,
+        `🔬 Physics Puzzle Lab${difficultyText}`,
       ],
     },
     weekend: {
@@ -107,7 +117,84 @@ const generateSplashConfig = (
   };
 };
 
-export const createPost = async (puzzleType: 'daily' | 'special' | 'challenge' = 'daily') => {
+// Interface for leaderboard post data
+interface LeaderboardPostData {
+  type: 'leaderboard';
+  leaderboardType: 'daily' | 'weekly';
+  date: string;
+  weekStart?: string;
+  weekEnd?: string;
+  entries: Array<{
+    rank: number;
+    username: string;
+    time: string;
+    difficulty: 'easy' | 'medium' | 'hard';
+    hintsUsed: number;
+    score: number;
+  }>;
+  stats: {
+    totalPlayers: number;
+    totalSubmissions: number;
+    fastestTime: string;
+    topScore: number;
+    puzzleStats: {
+      easy: number;
+      medium: number;
+      hard: number;
+    };
+  };
+}
+
+export const createLeaderboardPost = async (
+  leaderboardData: LeaderboardPostData,
+  type: 'daily' | 'weekly' = 'daily'
+) => {
+  const { subredditName } = context;
+  if (!subredditName) {
+    throw new Error('subredditName is required');
+  }
+
+  const validSubredditName: string = subredditName;
+  const formattedDate = new Date(leaderboardData.date).toLocaleDateString('en-US', {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+
+  // Create enhanced splash screen for leaderboard
+  const splashConfig: SplashConfig = {
+    appDisplayName: 'ReflectIQ Leaderboard',
+    backgroundUri: 'RQ-background.png',
+    buttonLabel: type === 'daily' ? '🏆 View Daily Rankings' : '🏆 View Weekly Rankings',
+    description:
+      type === 'daily'
+        ? `🏆 ${formattedDate}'s top puzzle solvers! See who mastered today's laser challenges across all difficulty levels. ${leaderboardData.entries.length} players competing today!`
+        : `🏆 Weekly champions from ${leaderboardData.weekStart} to ${leaderboardData.weekEnd}! See the top performers across multiple puzzle challenges. ${leaderboardData.entries.length} players featured!`,
+    heading:
+      type === 'daily'
+        ? `🏆 Daily Leaderboard - ${formattedDate}`
+        : `🏆 Weekly Leaderboard - Week ${leaderboardData.weekStart}`,
+    appIconUri: 'RQ-icon.png',
+  };
+
+  const title =
+    type === 'daily'
+      ? `🏆 ReflectIQ Daily Leaderboard - ${leaderboardData.date} | ${leaderboardData.entries.length} Players`
+      : `🏆 ReflectIQ Weekly Leaderboard - Week ${leaderboardData.weekStart} | ${leaderboardData.entries.length} Champions`;
+
+  return await reddit.submitCustomPost({
+    subredditName: validSubredditName,
+    title: title,
+    splash: splashConfig,
+    postData: leaderboardData as Record<string, unknown>,
+  });
+};
+
+export const createPost = async (
+  puzzleType: 'daily' | 'special' | 'challenge' = 'daily',
+  availableDifficulties: ('easy' | 'medium' | 'hard')[] = ['easy', 'medium', 'hard']
+) => {
   const { subredditName } = context;
   if (!subredditName) {
     throw new Error('subredditName is required');
@@ -118,17 +205,22 @@ export const createPost = async (puzzleType: 'daily' | 'special' | 'challenge' =
 
   const today = new Date().toISOString().split('T')[0];
 
-  // Generate dynamic splash screen configuration
-  const splashConfig = generateSplashConfig(puzzleType);
+  // Generate dynamic splash screen configuration with available difficulties
+  const splashConfig = generateSplashConfig(puzzleType, availableDifficulties);
 
-  // Create dynamic title based on puzzle type
+  // Create dynamic title based on puzzle type and difficulty
   const titlePrefixes = {
     daily: '🔴 Daily ReflectIQ Puzzle',
     special: '⭐ Special ReflectIQ Challenge',
     challenge: '🏆 ReflectIQ Championship',
   };
 
-  const title = `${titlePrefixes[puzzleType]} - ${today} | Laser Reflection Challenge`;
+  // Create difficulty indicators for title
+  const difficultyIndicators = availableDifficulties.map((diff: 'easy' | 'medium' | 'hard') =>
+    diff === 'easy' ? '🟢 Easy' : diff === 'medium' ? '🟡 Medium' : '🔴 Hard'
+  );
+
+  const title = `${titlePrefixes[puzzleType]} - ${today} | ${difficultyIndicators.join(' • ')} Challenges`;
 
   // Calculate day of year for variant tracking
   const dayOfYear = Math.floor(
@@ -142,8 +234,9 @@ export const createPost = async (puzzleType: 'daily' | 'special' | 'challenge' =
     postData: {
       puzzleDate: today,
       gameType: puzzleType,
+      availableDifficulties: availableDifficulties,
       status: 'active',
       splashVariant: dayOfYear % 6, // Track which variant was used (0-5)
-    } as Record<string, string | number>,
+    } as Record<string, unknown>,
   });
 };
