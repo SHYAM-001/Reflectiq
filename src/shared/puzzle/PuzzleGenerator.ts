@@ -313,9 +313,9 @@ export class PuzzleGenerator {
   private getMinimumDistanceForDifficulty(difficulty: Difficulty, gridSize: number): number {
     // Base minimum distances scaled by difficulty
     const baseDistances = {
-      Easy: 3, // At least 3 boxes away
-      Medium: 4, // At least 4 boxes away
-      Hard: 5, // At least 5 boxes away
+      Easy: 4, // At least 4 boxes away
+      Medium: 5, // At least 5 boxes away
+      Hard: 8, // At least 8 boxes away
     };
 
     // Scale based on grid size - larger grids can have proportionally larger minimum distances
