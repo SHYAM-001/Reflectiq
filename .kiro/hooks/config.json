@@ -1,0 +1,136 @@
+{
+  "hooks": [
+    {
+      "name": "format-on-save",
+      "enabled": true,
+      "trigger": "file-save",
+      "filePattern": "**/*.{ts,tsx,js,jsx,json,md}",
+      "actions": [
+        {
+          "type": "command",
+          "command": "prettier --write ${filePath}",
+          "description": "Formatting with Prettier..."
+        },
+        {
+          "type": "command",
+          "command": "eslint --fix ${filePath}",
+          "description": "Fixing ESLint issues...",
+          "continueOnError": true
+        }
+      ],
+      "silent": true,
+      "runInBackground": true
+    },
+    {
+      "name": "test-on-save",
+      "enabled": true,
+      "trigger": "file-save",
+      "filePattern": "**/*.{ts,tsx}",
+      "excludePattern": "**/*.test.{ts,tsx}",
+      "actions": [
+        {
+          "type": "command",
+          "command": "npm run type-check",
+          "description": "Type checking..."
+        },
+        {
+          "type": "command",
+          "command": "npm run lint -- ${filePath}",
+          "description": "Linting..."
+        }
+      ],
+      "showOutput": false,
+      "continueOnError": true,
+      "debounce": 1000
+    },
+    {
+      "name": "puzzle-validator",
+      "enabled": true,
+      "trigger": "file-save",
+      "filePattern": "src/shared/puzzle/**/*.ts",
+      "actions": [
+        {
+          "type": "command",
+          "command": "npm run type-check -- src/shared/puzzle",
+          "description": "Type checking puzzle modules..."
+        },
+        {
+          "type": "command",
+          "command": "npm test -- --testPathPattern=puzzle --passWithNoTests",
+          "description": "Running puzzle validation tests..."
+        }
+      ],
+      "showOutput": true,
+      "notifications": {
+        "success": "✅ Puzzle validation passed!",
+        "error": "🧩 Puzzle validation failed - check logic"
+      },
+      "debounce": 2000
+    },
+    {
+      "name": "devvit-sync",
+      "enabled": true,
+      "trigger": "file-save",
+      "filePattern": "devvit.json",
+      "actions": [
+        {
+          "type": "command",
+          "command": "npm run build",
+          "description": "Building ReflectIQ..."
+        },
+        {
+          "type": "conditional",
+          "condition": "previous-success",
+          "action": {
+            "type": "command",
+            "command": "devvit upload",
+            "description": "Syncing with Devvit platform..."
+          }
+        }
+      ],
+      "showOutput": true,
+      "notifications": {
+        "success": "🔄 Devvit configuration synced!",
+        "error": "⚠️ Devvit sync failed - check configuration"
+      }
+    },
+    {
+      "name": "build-and-deploy",
+      "enabled": false,
+      "trigger": "manual",
+      "description": "Build and deploy ReflectIQ to Devvit",
+      "actions": [
+        {
+          "type": "command",
+          "command": "npm run build",
+          "description": "Building ReflectIQ..."
+        },
+        {
+          "type": "command",
+          "command": "npm test -- --passWithNoTests",
+          "description": "Running tests..."
+        },
+        {
+          "type": "conditional",
+          "condition": "previous-success",
+          "action": {
+            "type": "command",
+            "command": "devvit upload",
+            "description": "Deploying to Devvit..."
+          }
+        }
+      ],
+      "showOutput": true,
+      "notifications": {
+        "success": "🚀 ReflectIQ deployed successfully!",
+        "error": "❌ Deployment failed - check output for details"
+      }
+    }
+  ],
+  "globalSettings": {
+    "maxConcurrentHooks": 3,
+    "defaultDebounce": 500,
+    "showNotifications": true,
+    "logLevel": "info"
+  }
+}

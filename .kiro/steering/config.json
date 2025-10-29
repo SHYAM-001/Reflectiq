@@ -1,0 +1,41 @@
+{
+  "steeringFiles": [
+    {
+      "name": "reflectiq-standards",
+      "path": "reflectiq-standards.md",
+      "inclusion": "always",
+      "priority": 1,
+      "description": "Core development standards and best practices for ReflectIQ"
+    },
+    {
+      "name": "puzzle-design-guidelines",
+      "path": "puzzle-design-guidelines.md",
+      "inclusion": "fileMatch",
+      "fileMatchPattern": "**/puzzle/**/*.ts",
+      "priority": 2,
+      "description": "Specific guidelines for puzzle generation and physics simulation"
+    },
+    {
+      "name": "devvit-integration",
+      "path": "devvit-integration.md",
+      "inclusion": "fileMatch",
+      "fileMatchPattern": "**/server/**/*.ts",
+      "priority": 2,
+      "description": "Devvit platform integration standards and Reddit API usage"
+    },
+    {
+      "name": "ui-ux-standards",
+      "path": "ui-ux-standards.md",
+      "inclusion": "fileMatch",
+      "fileMatchPattern": "**/client/**/*.{ts,tsx}",
+      "priority": 2,
+      "description": "UI/UX standards for React components and accessibility"
+    }
+  ],
+  "globalSettings": {
+    "enableSteering": true,
+    "maxSteeringFiles": 10,
+    "cacheSteeringContent": true,
+    "logSteeringUsage": true
+  }
+}
