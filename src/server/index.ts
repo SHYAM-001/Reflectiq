@@ -205,6 +205,45 @@ router.use('/api/puzzle', puzzleRoutes);
 router.use('/api/leaderboard', leaderboardRoutes);
 router.use('/api', healthRoutes);
 
+// Debug endpoint to test comment processing manually
+router.post('/api/debug/test-comment', async (req, res): Promise<void> => {
+  try {
+    console.log('🧪 DEBUG: Testing comment processing manually');
+
+    // Simulate a comment submission
+    const testComment = {
+      body: req.body.comment || 'Exit: A1',
+      author: req.body.author || 'testuser',
+      postId: req.body.postId || 'test-post-123',
+    };
+
+    console.log('🧪 DEBUG: Simulating comment:', testComment);
+
+    // Call the comment processing logic directly
+    const commentResponse = await fetch('/internal/triggers/comment-submit', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(testComment),
+    });
+
+    const result = await commentResponse.json();
+
+    res.json({
+      status: 'success',
+      message: 'Debug comment processing completed',
+      testComment,
+      result,
+    });
+  } catch (error) {
+    console.error('🧪 DEBUG: Error in test comment processing:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Debug comment processing failed',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
 // Post context endpoint for React client
 router.get('/api/post-context', async (_req, res): Promise<void> => {
   try {
@@ -1252,13 +1291,20 @@ router.post('/internal/triggers/post-submit', async (_req, res): Promise<void> =
 router.post('/internal/triggers/comment-submit', async (req, res): Promise<void> => {
   try {
     const commentData = req.body;
-    console.log('Comment submission received:', commentData);
+    console.log(
+      '🔥 COMMENT TRIGGER CALLED - Comment submission received:',
+      JSON.stringify(commentData, null, 2)
+    );
 
-    // Extract comment information
-    const { body: commentBody, author, postId } = commentData;
+    // Extract comment information from Devvit event structure
+    const commentBody = commentData.comment?.body;
+    const author = commentData.author?.name;
+    const postId = commentData.comment?.postId;
+
+    console.log(`🔥 EXTRACTED DATA: body="${commentBody}", author="${author}", postId="${postId}"`);
 
     if (!commentBody || !author || !postId) {
-      console.log('Missing required comment data');
+      console.log('Missing required comment data after extraction');
       res.json({
         status: 'success',
         message: 'Comment processed (missing data)',
@@ -1266,10 +1312,11 @@ router.post('/internal/triggers/comment-submit', async (req, res): Promise<void>
       return;
     }
 
-    // Check if comment matches answer format: "Exit: [Cell]"
-    const answerMatch = commentBody.match(/^Exit:\s*([A-Z]\d+)$/i);
+    // Check if comment matches answer format: "Exit: [Cell]" or "Exit: [x,y]"
+    const cellMatch = commentBody.match(/^Exit:\s*([A-Z]\d+)$/i);
+    const coordMatch = commentBody.match(/^Exit:\s*\[(\d+),\s*(\d+)\]$/i);
 
-    if (!answerMatch) {
+    if (!cellMatch && !coordMatch) {
       console.log('Comment does not match answer format:', commentBody);
       res.json({
         status: 'success',
@@ -1278,15 +1325,36 @@ router.post('/internal/triggers/comment-submit', async (req, res): Promise<void>
       return;
     }
 
-    const answerCell = answerMatch[1].toUpperCase();
-    console.log(`Processing answer submission: ${answerCell} from ${author}`);
+    let answer: [number, number];
+    let answerDisplay: string;
 
-    // Parse the answer cell (e.g., "A1" -> [0, 0])
-    const letter = answerCell.charAt(0);
-    const number = parseInt(answerCell.slice(1));
+    if (cellMatch) {
+      // Parse cell format (e.g., "A1" -> [0, 0])
+      const answerCell = cellMatch[1].toUpperCase();
+      const letter = answerCell.charAt(0);
+      const number = parseInt(answerCell.slice(1));
 
-    if (!letter || isNaN(number)) {
-      console.log('Invalid answer format:', answerCell);
+      if (!letter || isNaN(number)) {
+        console.log('Invalid cell format:', answerCell);
+        res.json({
+          status: 'success',
+          message: 'Comment processed (invalid format)',
+        });
+        return;
+      }
+
+      const row = letter.charCodeAt(0) - 65; // A=0, B=1, etc.
+      const col = number - 1; // 1-based to 0-based
+      answer = [row, col];
+      answerDisplay = answerCell;
+    } else if (coordMatch) {
+      // Parse coordinate format (e.g., "[2,3]" -> [2, 3])
+      const row = parseInt(coordMatch[1]);
+      const col = parseInt(coordMatch[2]);
+      answer = [row, col];
+      answerDisplay = `[${row},${col}]`;
+    } else {
+      console.log('Invalid answer format');
       res.json({
         status: 'success',
         message: 'Comment processed (invalid format)',
@@ -1294,36 +1362,604 @@ router.post('/internal/triggers/comment-submit', async (req, res): Promise<void>
       return;
     }
 
-    const row = letter.charCodeAt(0) - 65; // A=0, B=1, etc.
-    const col = number - 1; // 1-based to 0-based
-    const answer: [number, number] = [row, col];
+    console.log(`Processing answer submission: ${answerDisplay} from ${author}`);
 
-    // TODO: Determine puzzle difficulty from post metadata or context
-    // For now, we'll try to find an active session for this user
     const today = new Date().toISOString().split('T')[0];
+    const puzzleService = PuzzleService.getInstance();
+    const leaderboardService = LeaderboardService.getInstance();
 
-    // Try to find the user's active session
-    // This is a simplified approach - in production, we'd need better session management
-    console.log(`Processing answer for user ${author}: ${answerCell} -> [${row}, ${col}]`);
+    // Try all difficulties to find which puzzle this answer is for
+    const difficulties = ['Easy', 'Medium', 'Hard'] as const;
+    let processedSubmission = false;
 
-    // TODO: Implement actual answer processing with session lookup and scoring
-    // For now, just log the submission
-    console.log('Answer submission logged successfully');
+    for (const difficulty of difficulties) {
+      try {
+        // Get the puzzle for this difficulty
+        const puzzleResponse = await puzzleService.getCurrentPuzzle(difficulty);
 
-    res.json({
-      status: 'success',
-      message: 'Answer submission processed',
-      data: {
-        user: author,
-        answer: answerCell,
-        coordinates: answer,
-      },
-    });
+        if (puzzleResponse.success && puzzleResponse.data) {
+          const puzzle = puzzleResponse.data;
+
+          // Check if the answer matches this puzzle's solution
+          const [solutionRow, solutionCol] = puzzle.solution;
+          const [answerRow, answerCol] = answer;
+
+          if (solutionRow === answerRow && solutionCol === answerCol) {
+            console.log(`Correct answer found for ${difficulty} puzzle: ${answerDisplay}`);
+
+            // Calculate score (simplified scoring for comment submissions)
+            // Since we don't have session timing, we'll use a default time and no hints
+            const defaultTime = 300; // 5 minutes default
+            const hintsUsed = 0;
+            const baseScores = { Easy: 150, Medium: 400, Hard: 800 };
+            const baseScore = baseScores[difficulty];
+
+            // Simple scoring: base score with time penalty (assuming 5 minutes)
+            const maxTime = 600; // 10 minutes max
+            const timeMultiplier = Math.max(0.1, (maxTime - defaultTime) / maxTime);
+            const finalScore = Math.round(baseScore * timeMultiplier);
+
+            // Create submission object
+            const submission = {
+              userId: author,
+              puzzleId: puzzle.id,
+              sessionId: `comment-${author}-${Date.now()}`, // Generate session ID for comment submissions
+              answer: answer,
+              timeTaken: defaultTime,
+              hintsUsed: hintsUsed,
+              score: finalScore,
+              correct: true,
+              timestamp: new Date(),
+              difficulty: difficulty,
+            };
+
+            // Update leaderboards
+            await leaderboardService.atomicScoreUpdate(puzzle.id, author, finalScore, submission);
+
+            console.log(
+              `Successfully processed submission for ${author}: ${difficulty} puzzle, score: ${finalScore}`
+            );
+            processedSubmission = true;
+
+            res.json({
+              status: 'success',
+              message: 'Answer submission processed and scored',
+              data: {
+                user: author,
+                answer: answerDisplay,
+                difficulty: difficulty,
+                correct: true,
+                score: finalScore,
+                puzzleId: puzzle.id,
+              },
+            });
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn(`Error checking ${difficulty} puzzle for ${author}:`, error);
+        // Continue to next difficulty
+      }
+    }
+
+    if (!processedSubmission) {
+      // Answer doesn't match any puzzle - still log it but don't score
+      console.log(
+        `Incorrect answer from ${author}: ${answerDisplay} (doesn't match any puzzle solution)`
+      );
+
+      res.json({
+        status: 'success',
+        message: 'Answer submission processed (incorrect)',
+        data: {
+          user: author,
+          answer: answerDisplay,
+          correct: false,
+        },
+      });
+    }
   } catch (error) {
     console.error(`Error processing comment submission: ${error}`);
     res.status(500).json({
       status: 'error',
       message: 'Failed to process comment submission',
+    });
+  }
+});
+
+// Manual trigger for comment processing (for testing)
+router.post('/api/debug/manual-comment', async (req, res): Promise<void> => {
+  try {
+    console.log('🧪 MANUAL COMMENT TRIGGER: Processing comment manually');
+
+    const { comment, author, postId } = req.body;
+
+    if (!comment || !author) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Missing comment or author in request body',
+      });
+      return;
+    }
+
+    // Simulate the comment trigger by calling our handler directly
+    const commentData = {
+      body: comment,
+      author: author,
+      postId: postId || 'manual-test-post',
+    };
+
+    console.log('🧪 MANUAL: Simulating comment trigger with data:', commentData);
+
+    // Process the comment using the same logic as the trigger
+    const triggerReq = {
+      body: commentData,
+    } as any;
+
+    const triggerRes = {
+      json: (data: any) => {
+        console.log('🧪 MANUAL: Comment processing result:', data);
+        res.json({
+          status: 'success',
+          message: 'Manual comment processing completed',
+          triggerResult: data,
+        });
+      },
+      status: (code: number) => ({
+        json: (data: any) => {
+          console.log('🧪 MANUAL: Comment processing error:', data);
+          res.status(code).json({
+            status: 'error',
+            message: 'Manual comment processing failed',
+            triggerResult: data,
+          });
+        },
+      }),
+    } as any;
+
+    // Call the comment trigger handler directly
+    await router.stack
+      .find((layer: unknown) => layer.route?.path === '/internal/triggers/comment-submit')
+      ?.route?.stack?.[0]?.handle(triggerReq, triggerRes);
+  } catch (error) {
+    console.error('🧪 MANUAL: Error in manual comment processing:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Manual comment processing failed',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Debug endpoints for testing
+router.get('/api/debug/system-state', async (req, res): Promise<void> => {
+  try {
+    console.log('🧪 DEBUG: Checking system state');
+
+    const today = new Date().toISOString().split('T')[0];
+    const puzzleService = PuzzleService.getInstance();
+    const leaderboardService = LeaderboardService.getInstance();
+
+    // Check if puzzles exist
+    const puzzlesExist = await puzzleService.puzzlesExistForDate(today);
+    const puzzleStats = await puzzleService.getPuzzleStats(today);
+
+    // Check leaderboard stats
+    const leaderboardStats = await leaderboardService.getLeaderboardStats(today);
+    const dailyLeaderboard = await leaderboardService.getDailyLeaderboard(today, 10);
+
+    // Try to get current puzzles
+    const puzzleResponses = {
+      easy: await puzzleService.getCurrentPuzzle('Easy'),
+      medium: await puzzleService.getCurrentPuzzle('Medium'),
+      hard: await puzzleService.getCurrentPuzzle('Hard'),
+    };
+
+    res.json({
+      status: 'success',
+      date: today,
+      puzzles: {
+        exist: puzzlesExist,
+        stats: puzzleStats,
+        responses: {
+          easy: { success: puzzleResponses.easy.success, hasData: !!puzzleResponses.easy.data },
+          medium: {
+            success: puzzleResponses.medium.success,
+            hasData: !!puzzleResponses.medium.data,
+          },
+          hard: { success: puzzleResponses.hard.success, hasData: !!puzzleResponses.hard.data },
+        },
+        solutions: puzzlesExist
+          ? {
+              easy: puzzleResponses.easy.data?.solution,
+              medium: puzzleResponses.medium.data?.solution,
+              hard: puzzleResponses.hard.data?.solution,
+            }
+          : null,
+      },
+      leaderboard: {
+        stats: leaderboardStats,
+        entries: dailyLeaderboard.entries,
+        totalPlayers: dailyLeaderboard.totalPlayers,
+      },
+    });
+  } catch (error) {
+    console.error('🧪 DEBUG: Error checking system state:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to check system state',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+router.post('/api/debug/test-comment', async (req, res): Promise<void> => {
+  try {
+    console.log('🧪 DEBUG: Testing comment processing manually');
+
+    const today = new Date().toISOString().split('T')[0];
+    const puzzleService = PuzzleService.getInstance();
+    const leaderboardService = LeaderboardService.getInstance();
+
+    // First, ensure puzzles exist
+    const puzzlesExist = await puzzleService.puzzlesExistForDate(today);
+    if (!puzzlesExist) {
+      console.log('🧪 DEBUG: No puzzles exist, generating them...');
+      await puzzleService.generateDailyPuzzles(today);
+    }
+
+    // Get the test parameters
+    const testComment = {
+      body: req.body.comment || 'Exit: A1',
+      author: req.body.author || 'testuser',
+      postId: req.body.postId || 'test-post-123',
+    };
+
+    console.log('🧪 DEBUG: Processing test comment:', testComment);
+
+    // Process the comment directly (simulate the trigger)
+    const { body: commentBody, author, postId } = testComment;
+
+    if (!commentBody || !author || !postId) {
+      res.json({
+        status: 'error',
+        message: 'Missing required comment data',
+      });
+      return;
+    }
+
+    // Check if comment matches answer format
+    const cellMatch = commentBody.match(/^Exit:\s*([A-Z]\d+)$/i);
+    const coordMatch = commentBody.match(/^Exit:\s*\[(\d+),\s*(\d+)\]$/i);
+
+    if (!cellMatch && !coordMatch) {
+      res.json({
+        status: 'success',
+        message: 'Comment does not match answer format',
+        comment: commentBody,
+      });
+      return;
+    }
+
+    let answer: [number, number];
+    let answerDisplay: string;
+
+    if (cellMatch) {
+      const answerCell = cellMatch[1].toUpperCase();
+      const letter = answerCell.charAt(0);
+      const number = parseInt(answerCell.slice(1));
+
+      const row = letter.charCodeAt(0) - 65;
+      const col = number - 1;
+      answer = [row, col];
+      answerDisplay = answerCell;
+    } else if (coordMatch) {
+      const row = parseInt(coordMatch[1]);
+      const col = parseInt(coordMatch[2]);
+      answer = [row, col];
+      answerDisplay = `[${row},${col}]`;
+    } else {
+      res.json({
+        status: 'error',
+        message: 'Invalid answer format',
+      });
+      return;
+    }
+
+    console.log(`🧪 DEBUG: Parsed answer: ${answerDisplay} -> [${answer[0]}, ${answer[1]}]`);
+
+    // Try all difficulties to find which puzzle this answer is for
+    const difficulties = ['Easy', 'Medium', 'Hard'] as const;
+    let processedSubmission = false;
+    let debugInfo: unknown = {};
+
+    for (const difficulty of difficulties) {
+      try {
+        const puzzleResponse = await puzzleService.getCurrentPuzzle(difficulty);
+
+        if (puzzleResponse.success && puzzleResponse.data) {
+          const puzzle = puzzleResponse.data;
+          const [solutionRow, solutionCol] = puzzle.solution;
+          const [answerRow, answerCol] = answer;
+
+          debugInfo[difficulty] = {
+            puzzleId: puzzle.id,
+            solution: puzzle.solution,
+            answer: answer,
+            matches: solutionRow === answerRow && solutionCol === answerCol,
+          };
+
+          if (solutionRow === answerRow && solutionCol === answerCol) {
+            console.log(`🧪 DEBUG: Correct answer found for ${difficulty} puzzle!`);
+
+            // Calculate score
+            const defaultTime = 300;
+            const hintsUsed = 0;
+            const baseScores = { Easy: 150, Medium: 400, Hard: 800 };
+            const baseScore = baseScores[difficulty];
+            const maxTime = 600;
+            const timeMultiplier = Math.max(0.1, (maxTime - defaultTime) / maxTime);
+            const finalScore = Math.round(baseScore * timeMultiplier);
+
+            // Create submission
+            const submission = {
+              userId: author,
+              puzzleId: puzzle.id,
+              sessionId: `debug-${author}-${Date.now()}`,
+              answer: answer,
+              timeTaken: defaultTime,
+              hintsUsed: hintsUsed,
+              score: finalScore,
+              correct: true,
+              timestamp: new Date(),
+              difficulty: difficulty,
+            };
+
+            // Update leaderboards
+            const updateResult = await leaderboardService.atomicScoreUpdate(
+              puzzle.id,
+              author,
+              finalScore,
+              submission
+            );
+
+            console.log(`🧪 DEBUG: Leaderboard update result:`, updateResult);
+            processedSubmission = true;
+
+            res.json({
+              status: 'success',
+              message: 'Answer processed and scored',
+              data: {
+                user: author,
+                answer: answerDisplay,
+                difficulty: difficulty,
+                correct: true,
+                score: finalScore,
+                puzzleId: puzzle.id,
+                updateResult,
+                debugInfo,
+              },
+            });
+            return;
+          }
+        }
+      } catch (error) {
+        console.warn(`🧪 DEBUG: Error checking ${difficulty} puzzle:`, error);
+        debugInfo[difficulty] = { error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    }
+
+    if (!processedSubmission) {
+      res.json({
+        status: 'success',
+        message: 'Answer does not match any puzzle solution',
+        data: {
+          user: author,
+          answer: answerDisplay,
+          correct: false,
+          debugInfo,
+        },
+      });
+    }
+  } catch (error) {
+    console.error('🧪 DEBUG: Error in test comment processing:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Debug comment processing failed',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+// Manual comment processing endpoint for testing
+router.post('/api/debug/process-comment', async (req, res): Promise<void> => {
+  try {
+    console.log('🧪 MANUAL: Processing comment manually');
+
+    const { comment, author } = req.body;
+
+    if (!comment || !author) {
+      res.status(400).json({
+        status: 'error',
+        message: 'Missing comment or author. Send: {"comment": "Exit: A1", "author": "username"}',
+      });
+      return;
+    }
+
+    console.log(`🧪 MANUAL: Processing comment "${comment}" from ${author}`);
+
+    const today = new Date().toISOString().split('T')[0];
+    const puzzleService = PuzzleService.getInstance();
+    const leaderboardService = LeaderboardService.getInstance();
+
+    // First, ensure puzzles exist
+    let puzzlesExist = await puzzleService.puzzlesExistForDate(today);
+    if (!puzzlesExist) {
+      console.log('🧪 MANUAL: No puzzles exist, generating them...');
+      await puzzleService.generateDailyPuzzles(today);
+      puzzlesExist = true;
+    }
+
+    // Parse the comment
+    const cellMatch = comment.match(/^Exit:\s*([A-Z]\d+)$/i);
+    const coordMatch = comment.match(/^Exit:\s*\[(\d+),\s*(\d+)\]$/i);
+
+    if (!cellMatch && !coordMatch) {
+      res.json({
+        status: 'error',
+        message: 'Comment does not match answer format. Use "Exit: A1" or "Exit: [0,0]"',
+        comment,
+      });
+      return;
+    }
+
+    let answer: [number, number];
+    let answerDisplay: string;
+
+    if (cellMatch) {
+      const answerCell = cellMatch[1].toUpperCase();
+      const letter = answerCell.charAt(0);
+      const number = parseInt(answerCell.slice(1));
+
+      const row = letter.charCodeAt(0) - 65;
+      const col = number - 1;
+      answer = [row, col];
+      answerDisplay = answerCell;
+    } else if (coordMatch) {
+      const row = parseInt(coordMatch[1]);
+      const col = parseInt(coordMatch[2]);
+      answer = [row, col];
+      answerDisplay = `[${row},${col}]`;
+    } else {
+      res.json({
+        status: 'error',
+        message: 'Invalid answer format',
+      });
+      return;
+    }
+
+    console.log(`🧪 MANUAL: Parsed answer: ${answerDisplay} -> [${answer[0]}, ${answer[1]}]`);
+
+    // Check all difficulties
+    const difficulties = ['Easy', 'Medium', 'Hard'] as const;
+    let debugInfo: unknown = {};
+    let processedSubmission = false;
+
+    for (const difficulty of difficulties) {
+      try {
+        const puzzleResponse = await puzzleService.getCurrentPuzzle(difficulty);
+
+        if (puzzleResponse.success && puzzleResponse.data) {
+          const puzzle = puzzleResponse.data;
+          const [solutionRow, solutionCol] = puzzle.solution;
+          const [answerRow, answerCol] = answer;
+
+          debugInfo[difficulty] = {
+            puzzleId: puzzle.id,
+            solution: puzzle.solution,
+            answer: answer,
+            matches: solutionRow === answerRow && solutionCol === answerCol,
+          };
+
+          console.log(
+            `🧪 MANUAL: ${difficulty} puzzle - Solution: [${solutionRow}, ${solutionCol}], Answer: [${answerRow}, ${answerCol}], Matches: ${solutionRow === answerRow && solutionCol === answerCol}`
+          );
+
+          if (solutionRow === answerRow && solutionCol === answerCol) {
+            console.log(`🧪 MANUAL: ✅ Correct answer for ${difficulty} puzzle!`);
+
+            // Calculate score
+            const defaultTime = 300;
+            const hintsUsed = 0;
+            const baseScores = { Easy: 150, Medium: 400, Hard: 800 };
+            const baseScore = baseScores[difficulty];
+            const maxTime = 600;
+            const timeMultiplier = Math.max(0.1, (maxTime - defaultTime) / maxTime);
+            const finalScore = Math.round(baseScore * timeMultiplier);
+
+            // Create submission
+            const submission = {
+              userId: author,
+              puzzleId: puzzle.id,
+              sessionId: `manual-${author}-${Date.now()}`,
+              answer: answer,
+              timeTaken: defaultTime,
+              hintsUsed: hintsUsed,
+              score: finalScore,
+              correct: true,
+              timestamp: new Date(),
+              difficulty: difficulty,
+            };
+
+            console.log(`🧪 MANUAL: Creating submission:`, submission);
+
+            // Update leaderboards
+            const updateResult = await leaderboardService.atomicScoreUpdate(
+              puzzle.id,
+              author,
+              finalScore,
+              submission
+            );
+
+            console.log(`🧪 MANUAL: Leaderboard update result:`, updateResult);
+
+            // Verify the update worked
+            const updatedStats = await leaderboardService.getLeaderboardStats(today);
+            const updatedLeaderboard = await leaderboardService.getDailyLeaderboard(today, 10);
+
+            console.log(`🧪 MANUAL: Updated stats:`, updatedStats);
+            console.log(`🧪 MANUAL: Updated leaderboard:`, updatedLeaderboard);
+
+            processedSubmission = true;
+
+            res.json({
+              status: 'success',
+              message: 'Answer processed and scored successfully!',
+              data: {
+                user: author,
+                answer: answerDisplay,
+                difficulty: difficulty,
+                correct: true,
+                score: finalScore,
+                puzzleId: puzzle.id,
+                updateResult,
+                debugInfo,
+                verification: {
+                  stats: updatedStats,
+                  leaderboard: updatedLeaderboard,
+                },
+              },
+            });
+            return;
+          }
+        } else {
+          debugInfo[difficulty] = { error: 'Puzzle not found or failed to load' };
+        }
+      } catch (error) {
+        console.warn(`🧪 MANUAL: Error checking ${difficulty} puzzle:`, error);
+        debugInfo[difficulty] = { error: error instanceof Error ? error.message : 'Unknown error' };
+      }
+    }
+
+    if (!processedSubmission) {
+      console.log(`🧪 MANUAL: ❌ Answer doesn't match any puzzle solution`);
+      res.json({
+        status: 'success',
+        message: 'Answer does not match any puzzle solution',
+        data: {
+          user: author,
+          answer: answerDisplay,
+          correct: false,
+          debugInfo,
+        },
+      });
+    }
+  } catch (error) {
+    console.error('🧪 MANUAL: Error in manual comment processing:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Manual comment processing failed',
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });
