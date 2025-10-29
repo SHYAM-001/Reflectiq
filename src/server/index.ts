@@ -1,6 +1,6 @@
 import express from 'express';
 import { InitResponse, IncrementResponse, DecrementResponse } from '../shared/types/api';
-import { reddit, createServer, context, getServerPort } from '@devvit/web/server';
+import { reddit, createServer, context, getServerPort, redis } from '@devvit/web/server';
 import { UiResponse } from '@devvit/web/shared';
 import { redisClient } from './utils/redisClient.js';
 import {
@@ -899,6 +899,210 @@ The weekly leaderboard resets every Sunday. New week, new chances to climb to th
   }
 );
 
+// Development reset endpoints
+router.post(
+  '/internal/menu/reset-leaderboard',
+  async (_req, res: express.Response<UiResponse>): Promise<void> => {
+    try {
+      console.log(`[DEV] Reset leaderboard data triggered at ${new Date().toISOString()}`);
+
+      if (!context.subredditName) {
+        res.json({
+          showToast: {
+            text: 'Error: Subreddit context not available',
+            appearance: 'neutral',
+          },
+        });
+        return;
+      }
+
+      // Use Devvit Redis API for bulk operations
+      // Since keys() is not available, we'll delete known key patterns
+
+      let deletedCount = 0;
+      const today = new Date().toISOString().split('T')[0];
+
+      // Delete known leaderboard patterns for the past 30 days
+      for (let i = 0; i < 30; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+
+        // Delete daily leaderboard keys
+        const dailyKey = `reflectiq:leaderboard:daily:${dateStr}`;
+        try {
+          const exists = await redis.exists(dailyKey);
+          if (exists) {
+            await redis.del(dailyKey);
+            deletedCount++;
+          }
+        } catch (error) {
+          console.warn(`Failed to delete ${dailyKey}:`, error);
+        }
+
+        // Delete puzzle-specific leaderboard keys
+        const difficulties = ['easy', 'medium', 'hard'];
+        for (const difficulty of difficulties) {
+          const puzzleKey = `reflectiq:leaderboard:puzzle_${difficulty}_${dateStr}`;
+          try {
+            const exists = await redis.exists(puzzleKey);
+            if (exists) {
+              await redis.del(puzzleKey);
+              deletedCount++;
+            }
+          } catch (error) {
+            console.warn(`Failed to delete ${puzzleKey}:`, error);
+          }
+        }
+      }
+
+      // Delete submission tracking keys
+      const difficulties = ['easy', 'medium', 'hard'];
+      for (let i = 0; i < 30; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+
+        for (const difficulty of difficulties) {
+          const submissionKey = `reflectiq:submissions:puzzle_${difficulty}_${dateStr}`;
+          try {
+            const exists = await redis.exists(submissionKey);
+            if (exists) {
+              await redis.del(submissionKey);
+              deletedCount++;
+            }
+          } catch (error) {
+            console.warn(`Failed to delete ${submissionKey}:`, error);
+          }
+        }
+      }
+
+      console.log(`[DEV] Deleted ${deletedCount} leaderboard and submission keys`);
+
+      res.json({
+        showToast: {
+          text: `[DEV] Successfully cleared ${deletedCount} leaderboard and submission records`,
+          appearance: 'success',
+        },
+      });
+    } catch (error) {
+      console.error('[DEV] Error resetting leaderboard data:', error);
+
+      res.json({
+        showToast: {
+          text: '[DEV] Failed to reset leaderboard data. Check logs for details.',
+          appearance: 'neutral',
+        },
+      });
+    }
+  }
+);
+
+router.post(
+  '/internal/menu/reset-puzzles',
+  async (_req, res: express.Response<UiResponse>): Promise<void> => {
+    try {
+      console.log(`[DEV] Reset puzzle data triggered at ${new Date().toISOString()}`);
+
+      if (!context.subredditName) {
+        res.json({
+          showToast: {
+            text: 'Error: Subreddit context not available',
+            appearance: 'neutral',
+          },
+        });
+        return;
+      }
+
+      // Use Devvit Redis API for bulk operations
+      // Since keys() is not available, we'll delete known key patterns
+
+      let deletedCount = 0;
+
+      // Delete known puzzle patterns for the past 30 days
+      for (let i = 0; i < 30; i++) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+
+        // Delete puzzle set keys
+        const puzzleSetKey = `reflectiq:puzzles:${dateStr}`;
+        try {
+          const exists = await redis.exists(puzzleSetKey);
+          if (exists) {
+            await redis.del(puzzleSetKey);
+            deletedCount++;
+          }
+        } catch (error) {
+          console.warn(`Failed to delete ${puzzleSetKey}:`, error);
+        }
+
+        // Delete individual puzzle keys
+        const difficulties = ['easy', 'medium', 'hard'];
+        for (const difficulty of difficulties) {
+          const puzzleKey = `reflectiq:puzzle:${difficulty}:${dateStr}`;
+          try {
+            const exists = await redis.exists(puzzleKey);
+            if (exists) {
+              await redis.del(puzzleKey);
+              deletedCount++;
+            }
+          } catch (error) {
+            console.warn(`Failed to delete ${puzzleKey}:`, error);
+          }
+        }
+      }
+
+      // Delete session keys (these might have various patterns)
+      // We'll try common session patterns
+      const sessionPatterns = [
+        'reflectiq:session:',
+        'reflectiq:sessions:',
+        'reflectiq:user_session:',
+        'reflectiq:game_session:',
+      ];
+
+      for (const pattern of sessionPatterns) {
+        // Try to delete session keys for the past 7 days
+        for (let i = 0; i < 7; i++) {
+          const date = new Date();
+          date.setDate(date.getDate() - i);
+          const dateStr = date.toISOString().split('T')[0];
+
+          const sessionKey = `${pattern}${dateStr}`;
+          try {
+            const exists = await redis.exists(sessionKey);
+            if (exists) {
+              await redis.del(sessionKey);
+              deletedCount++;
+            }
+          } catch (error) {
+            console.warn(`Failed to delete ${sessionKey}:`, error);
+          }
+        }
+      }
+
+      console.log(`[DEV] Deleted ${deletedCount} puzzle and session keys`);
+
+      res.json({
+        showToast: {
+          text: `[DEV] Successfully cleared ${deletedCount} puzzle and session records`,
+          appearance: 'success',
+        },
+      });
+    } catch (error) {
+      console.error('[DEV] Error resetting puzzle data:', error);
+
+      res.json({
+        showToast: {
+          text: '[DEV] Failed to reset puzzle data. Check logs for details.',
+          appearance: 'neutral',
+        },
+      });
+    }
+  }
+);
+
 // Scheduler endpoints
 router.post('/internal/scheduler/generate-puzzles', async (_req, res): Promise<void> => {
   try {
@@ -1527,8 +1731,33 @@ router.post('/internal/triggers/comment-submit', async (req, res): Promise<void>
               difficulty: difficulty,
             };
 
-            // Update leaderboards
-            await leaderboardService.atomicScoreUpdate(puzzle.id, author, finalScore, submission);
+            // Update leaderboards with duplicate prevention
+            const updateResult = await leaderboardService.atomicScoreUpdate(
+              puzzle.id,
+              author,
+              finalScore,
+              submission
+            );
+
+            if (!updateResult.success) {
+              console.log(
+                `Duplicate submission rejected for ${author}: ${difficulty} puzzle - ${updateResult.error}`
+              );
+
+              res.json({
+                status: 'duplicate',
+                message: updateResult.error || 'You have already completed this puzzle today',
+                data: {
+                  user: author,
+                  answer: answerDisplay,
+                  difficulty: difficulty,
+                  correct: true,
+                  previousScore: updateResult.previousScore,
+                  puzzleId: puzzle.id,
+                },
+              });
+              return;
+            }
 
             console.log(
               `Successfully processed submission for ${author}: ${difficulty} puzzle, score: ${finalScore}`

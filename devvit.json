@@ -66,6 +66,20 @@
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/weekly-leaderboard"
+      },
+      {
+        "label": "🧹 Reset Leaderboard Data",
+        "description": "[DEV] Clear all leaderboard and submission data",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/reset-leaderboard"
+      },
+      {
+        "label": "🗑️ Reset Puzzle Data",
+        "description": "[DEV] Clear all puzzle and session data",
+        "location": "subreddit",
+        "forUserType": "moderator",
+        "endpoint": "/internal/menu/reset-puzzles"
       }
     ]
   },

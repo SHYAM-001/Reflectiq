@@ -401,12 +401,13 @@ export class LeaderboardService {
       // Get previous score for comparison
       const previousScore = await redis.zScore(puzzleLeaderboardKey, userId);
 
-      // Only update if new score is better (higher)
-      if (previousScore !== null && score <= previousScore) {
+      // Check if user has already submitted for this puzzle today
+      if (previousScore !== null) {
         return {
           success: false,
           previousScore,
-          error: 'New score is not better than existing score',
+          error:
+            'User has already completed this puzzle today. Only one attempt per puzzle per day is allowed.',
         };
       }
 
