@@ -57,7 +57,10 @@ export class PuzzleGenerator {
    */
   public async createPuzzle(difficulty: Difficulty, date: string): Promise<Puzzle> {
     const config = DIFFICULTY_CONFIGS[difficulty];
-    const puzzleId = `puzzle_${difficulty.toLowerCase()}_${date}`;
+    // Add randomization to ensure different puzzles each time
+    const randomSeed = Math.floor(Math.random() * 10000);
+    const timestamp = Date.now();
+    const puzzleId = `puzzle_${difficulty.toLowerCase()}_${date}_${randomSeed}_${timestamp}`;
 
     let attempts = 0;
     const maxAttempts = 100;
@@ -141,15 +144,20 @@ export class PuzzleGenerator {
   private generateEntryPoint(gridSize: number): GridPosition {
     const boundaryPositions = getAllExitPositions(gridSize);
 
-    // Prefer entry points on left or top edges for better UX
-    const preferredPositions = boundaryPositions.filter(([x, y]) => x === 0 || y === 0);
+    // Add extra randomization to ensure different entry points
+    const shuffledPositions = [...boundaryPositions].sort(() => Math.random() - 0.5);
 
-    if (preferredPositions.length > 0) {
+    // Prefer entry points on left or top edges for better UX, but with randomization
+    const preferredPositions = shuffledPositions.filter(([x, y]) => x === 0 || y === 0);
+
+    if (preferredPositions.length > 0 && Math.random() > 0.3) {
+      // 70% chance to use preferred
       const selected = preferredPositions[Math.floor(Math.random() * preferredPositions.length)];
       if (selected) return selected;
     }
 
-    const selected = boundaryPositions[Math.floor(Math.random() * boundaryPositions.length)];
+    // 30% chance to use any boundary position for more variety
+    const selected = shuffledPositions[Math.floor(Math.random() * shuffledPositions.length)];
     if (!selected) {
       throw new Error('No boundary positions available for entry point');
     }
@@ -171,10 +179,14 @@ export class PuzzleGenerator {
     // Reserve entry position
     occupiedPositions.add(positionToKey(entry));
 
+    // Add randomization to material count for variety
+    const randomVariation = Math.floor(Math.random() * 3) - 1; // -1, 0, or +1
+    const adjustedTargetCount = Math.max(1, targetCount + randomVariation);
+
     // Generate materials with weighted distribution
     const materialWeights = this.getMaterialWeights(allowedMaterials);
 
-    for (let i = 0; i < targetCount; i++) {
+    for (let i = 0; i < adjustedTargetCount; i++) {
       let position: GridPosition;
       let attempts = 0;
 
@@ -274,7 +286,10 @@ export class PuzzleGenerator {
   private generateMirrorAngle(): number {
     // Generate angles in 15-degree increments for cleaner reflections
     const angleIncrements = [0, 15, 30, 45, 60, 75, 90, 105, 120, 135, 150, 165];
-    const selected = angleIncrements[Math.floor(Math.random() * angleIncrements.length)];
+
+    // Add extra randomization by shuffling the array
+    const shuffledAngles = [...angleIncrements].sort(() => Math.random() - 0.5);
+    const selected = shuffledAngles[Math.floor(Math.random() * shuffledAngles.length)];
     return selected ?? 45; // Default to 45 degrees if undefined
   }
 
@@ -311,17 +326,15 @@ export class PuzzleGenerator {
    * Get minimum distance requirement based on difficulty level
    */
   private getMinimumDistanceForDifficulty(difficulty: Difficulty, gridSize: number): number {
-    // Base minimum distances scaled by difficulty
+    // More reasonable minimum distances that allow successful generation
     const baseDistances = {
-      Easy: 4, // At least 4 boxes away
-      Medium: 5, // At least 5 boxes away
-      Hard: 8, // At least 8 boxes away
+      Easy: 2, // At least 2 boxes away (reasonable for 6x6 grid)
+      Medium: 3, // At least 3 boxes away (reasonable for 8x8 grid)
+      Hard: 4, // At least 4 boxes away (reasonable for 10x10 grid)
     };
 
-    // Scale based on grid size - larger grids can have proportionally larger minimum distances
-    const scaleFactor = gridSize >= 10 ? 1.2 : 1.0;
-
-    return Math.ceil(baseDistances[difficulty] * scaleFactor);
+    // Don't scale too aggressively to ensure puzzles can be generated
+    return baseDistances[difficulty];
   }
 
   /**

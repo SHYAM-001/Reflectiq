@@ -1764,6 +1764,18 @@ router.post('/internal/triggers/comment-submit', async (req, res): Promise<void>
             );
             processedSubmission = true;
 
+            // Send private message to user with correct answer feedback
+            try {
+              await reddit.sendPrivateMessage({
+                to: author,
+                subject: '🎯 ReflectIQ - Correct Answer! 🎉',
+                text: `Congratulations ${author}! 🎉\n\nYour answer **${answerDisplay}** for the **${difficulty}** puzzle was **CORRECT**! ✅\n\n**Your Score**: ${finalScore} points\n**Difficulty**: ${difficulty}\n**Time Bonus**: Applied for quick solving\n\nGreat job tracing that laser path! Check out tomorrow's puzzle for another challenge. 🚀\n\n*View the leaderboard to see how you rank against other players!*`,
+              });
+              console.log(`Sent correct answer confirmation to ${author}`);
+            } catch (error) {
+              console.warn(`Failed to send private message to ${author}:`, error);
+            }
+
             res.json({
               status: 'success',
               message: 'Answer submission processed and scored',
@@ -1786,10 +1798,22 @@ router.post('/internal/triggers/comment-submit', async (req, res): Promise<void>
     }
 
     if (!processedSubmission) {
-      // Answer doesn't match any puzzle - still log it but don't score
+      // Answer doesn't match any puzzle - send private message with feedback
       console.log(
         `Incorrect answer from ${author}: ${answerDisplay} (doesn't match any puzzle solution)`
       );
+
+      // Send private message to user with incorrect answer feedback
+      try {
+        await reddit.sendPrivateMessage({
+          to: author,
+          subject: '🎯 ReflectIQ - Answer Result',
+          text: `Hi ${author}!\n\nYour answer **${answerDisplay}** for today's ReflectIQ puzzle was **incorrect**. 😔\n\nDon't give up! Try tracing the laser path again and look for:\n- Mirror reflections (45° angles)\n- Water diffusion effects\n- Glass pass-through mechanics\n- Metal reversals\n\nGood luck! 🚀`,
+        });
+        console.log(`Sent incorrect answer feedback to ${author}`);
+      } catch (error) {
+        console.warn(`Failed to send private message to ${author}:`, error);
+      }
 
       res.json({
         status: 'success',
