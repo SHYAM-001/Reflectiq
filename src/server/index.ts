@@ -413,20 +413,115 @@ router.post(
   '/internal/menu/post-create',
   async (_req, res: express.Response<UiResponse>): Promise<void> => {
     try {
-      const post = await createPost();
+      console.log(`Manual daily puzzle creation triggered at ${new Date().toISOString()}`);
+
+      if (!context.subredditName) {
+        res.json({
+          showToast: {
+            text: 'Error: Subreddit context not available',
+            appearance: 'neutral',
+          },
+        });
+        return;
+      }
+
+      const today = new Date().toISOString().split('T')[0];
+      const puzzleService = PuzzleService.getInstance();
+      const leaderboardService = LeaderboardService.getInstance();
+
+      // Step 1: Generate puzzles if they don't exist
+      const puzzlesExist = await puzzleService.puzzlesExistForDate(today);
+      if (!puzzlesExist) {
+        console.log(`Generating puzzles for ${today}...`);
+        await puzzleService.generateDailyPuzzles(today);
+      }
+
+      // Step 2: Create three puzzle posts (Easy, Medium, Hard)
+      const createdPosts = [];
+      const difficulties = ['easy', 'medium', 'hard'] as const;
+
+      for (const difficulty of difficulties) {
+        try {
+          const post = await createPost('daily', [difficulty]);
+          createdPosts.push({
+            difficulty: difficulty.charAt(0).toUpperCase() + difficulty.slice(1),
+            postId: post.id,
+            url: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
+          });
+          console.log(`Created ${difficulty} puzzle post: ${post.id}`);
+        } catch (error) {
+          console.error(`Failed to create ${difficulty} puzzle post:`, error);
+        }
+      }
+
+      // Step 3: Create yesterday's leaderboard post (if data exists)
+      let leaderboardPost = null;
+      try {
+        const yesterday = new Date();
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+        const leaderboardResult = await leaderboardService.getDailyLeaderboard(yesterdayStr, 10);
+        const stats = await leaderboardService.getLeaderboardStats(yesterdayStr);
+
+        if (leaderboardResult.entries.length > 0) {
+          const leaderboardData = {
+            type: 'leaderboard' as const,
+            leaderboardType: 'daily' as const,
+            date: yesterdayStr,
+            entries: leaderboardResult.entries.map((entry, index) => ({
+              rank: index + 1,
+              username: entry.username,
+              time: `${Math.floor(entry.time / 60)}:${(entry.time % 60).toString().padStart(2, '0')}`,
+              difficulty: entry.difficulty.toLowerCase() as 'easy' | 'medium' | 'hard',
+              hintsUsed: entry.hints,
+              score: entry.score,
+            })),
+            stats: {
+              totalPlayers: stats.dailyPlayers,
+              totalSubmissions: stats.totalSubmissions,
+              fastestTime:
+                leaderboardResult.entries.length > 0
+                  ? `${Math.floor(leaderboardResult.entries[0].time / 60)}:${(leaderboardResult.entries[0].time % 60).toString().padStart(2, '0')}`
+                  : 'N/A',
+              topScore:
+                leaderboardResult.entries.length > 0 ? leaderboardResult.entries[0].score : 0,
+              puzzleStats: stats.puzzleStats,
+            },
+          };
+
+          leaderboardPost = await createLeaderboardPost(leaderboardData, 'daily');
+          console.log(`Created yesterday's leaderboard post: ${leaderboardPost.id}`);
+        }
+      } catch (error) {
+        console.warn("Failed to create yesterday's leaderboard post:", error);
+      }
+
+      // Step 4: Prepare success response
+      const successMessage = `Daily puzzle setup complete! Created ${createdPosts.length} puzzle posts${leaderboardPost ? " + yesterday's leaderboard" : ''}`;
+
+      // Navigate to the first created post (Easy difficulty)
+      const navigationUrl =
+        createdPosts.length > 0
+          ? createdPosts[0].url
+          : `https://reddit.com/r/${context.subredditName}`;
 
       res.json({
         showToast: {
-          text: 'ReflectIQ puzzle post created successfully!',
+          text: successMessage,
           appearance: 'success',
         },
-        navigateTo: `https://reddit.com/r/${context.subredditName || 'unknown'}/comments/${post.id}`,
+        navigateTo: navigationUrl,
       });
+
+      console.log(
+        `Manual daily setup completed: ${createdPosts.length} puzzle posts, leaderboard: ${!!leaderboardPost}`
+      );
     } catch (error) {
-      console.error(`Error creating post: ${error}`);
+      console.error(`Error in manual daily puzzle creation: ${error}`);
       res.json({
         showToast: {
-          text: 'Failed to create puzzle post. Please try again.',
+          text: 'Failed to create daily puzzle setup. Please try again.',
           appearance: 'neutral',
         },
       });
@@ -1515,7 +1610,7 @@ router.post('/api/debug/manual-comment', async (req, res): Promise<void> => {
           });
         },
       }),
-    } as any;
+    } as unknown;
 
     // Call the comment trigger handler directly
     await router.stack

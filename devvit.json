@@ -47,8 +47,8 @@
   "menu": {
     "items": [
       {
-        "label": "Create ReflectIQ Puzzle",
-        "description": "Create a new daily puzzle post",
+        "label": "🎯 Create Daily Puzzle Set",
+        "description": "Create 3 puzzle posts (Easy/Medium/Hard) + yesterday's leaderboard",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/post-create"
