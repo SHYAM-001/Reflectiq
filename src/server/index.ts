@@ -442,7 +442,7 @@ router.post(
 
       for (const difficulty of difficulties) {
         try {
-          const post = await createPost('daily', [difficulty]);
+          const post = await createPost('daily', [difficulty], difficulty);
           createdPosts.push({
             difficulty: difficulty.charAt(0).toUpperCase() + difficulty.slice(1),
             postId: post.id,
@@ -1463,11 +1463,30 @@ router.post('/internal/triggers/comment-submit', async (req, res): Promise<void>
     const puzzleService = PuzzleService.getInstance();
     const leaderboardService = LeaderboardService.getInstance();
 
-    // Try all difficulties to find which puzzle this answer is for
-    const difficulties = ['Easy', 'Medium', 'Hard'] as const;
+    // Determine the specific difficulty for this post from the comment data
+    let targetDifficulty: 'Easy' | 'Medium' | 'Hard' | null = null;
+
+    // Extract difficulty from post title if available
+    if (commentData.post?.title) {
+      const postTitle = commentData.post.title;
+      if (postTitle.includes('🟢 Easy')) {
+        targetDifficulty = 'Easy';
+      } else if (postTitle.includes('🟡 Medium')) {
+        targetDifficulty = 'Medium';
+      } else if (postTitle.includes('🔴 Hard')) {
+        targetDifficulty = 'Hard';
+      }
+    }
+
+    console.log(`🎯 TARGET DIFFICULTY: ${targetDifficulty} (extracted from post title)`);
+
+    // If we couldn't determine the difficulty from the post, try all difficulties as fallback
+    const difficultiesToCheck = targetDifficulty
+      ? [targetDifficulty]
+      : (['Easy', 'Medium', 'Hard'] as const);
     let processedSubmission = false;
 
-    for (const difficulty of difficulties) {
+    for (const difficulty of difficultiesToCheck) {
       try {
         // Get the puzzle for this difficulty
         const puzzleResponse = await puzzleService.getCurrentPuzzle(difficulty);
@@ -1592,7 +1611,7 @@ router.post('/api/debug/manual-comment', async (req, res): Promise<void> => {
     } as any;
 
     const triggerRes = {
-      json: (data: any) => {
+      json: (data: unknown) => {
         console.log('🧪 MANUAL: Comment processing result:', data);
         res.json({
           status: 'success',
@@ -1601,7 +1620,7 @@ router.post('/api/debug/manual-comment', async (req, res): Promise<void> => {
         });
       },
       status: (code: number) => ({
-        json: (data: any) => {
+        json: (data: unknown) => {
           console.log('🧪 MANUAL: Comment processing error:', data);
           res.status(code).json({
             status: 'error',

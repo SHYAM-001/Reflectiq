@@ -144,9 +144,26 @@ export const useGameState = () => {
         errorType: null,
       }));
 
-      // Get current puzzle (difficulty will be determined by the post context)
-      // For now, we'll default to Easy, but this should come from the post metadata
-      const difficulty: Difficulty = 'Easy'; // TODO: Get from post context
+      // Get difficulty from post context or default to Easy
+      let difficulty: Difficulty = 'Easy';
+
+      try {
+        const postContextResponse = await fetch('/api/post-context');
+        if (postContextResponse.ok) {
+          const postContext = await postContextResponse.json();
+          const postData = postContext.postData;
+
+          if (postData?.specificDifficulty) {
+            // Convert to proper case (easy -> Easy, medium -> Medium, hard -> Hard)
+            difficulty = (postData.specificDifficulty.charAt(0).toUpperCase() +
+              postData.specificDifficulty.slice(1)) as Difficulty;
+            console.log(`Loading puzzle with difficulty from post context: ${difficulty}`);
+          }
+        }
+      } catch (error) {
+        console.log('Could not get post context, using default difficulty:', error);
+      }
+
       const puzzleResponse = await apiService.getCurrentPuzzle(difficulty);
 
       if (!puzzleResponse.success || !puzzleResponse.data) {
@@ -170,6 +187,7 @@ export const useGameState = () => {
       setState((prev) => ({
         ...prev,
         gameState: 'playing',
+        selectedDifficulty: difficulty,
         currentPuzzle: puzzle,
         session,
         hintsUsed: 0,

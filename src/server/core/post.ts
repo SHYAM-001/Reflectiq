@@ -193,7 +193,8 @@ export const createLeaderboardPost = async (
 
 export const createPost = async (
   puzzleType: 'daily' | 'special' | 'challenge' = 'daily',
-  availableDifficulties: ('easy' | 'medium' | 'hard')[] = ['easy', 'medium', 'hard']
+  availableDifficulties: ('easy' | 'medium' | 'hard')[] = ['easy', 'medium', 'hard'],
+  specificDifficulty?: 'easy' | 'medium' | 'hard'
 ) => {
   const { subredditName } = context;
   if (!subredditName) {
@@ -235,6 +236,7 @@ export const createPost = async (
       puzzleDate: today,
       gameType: puzzleType,
       availableDifficulties: availableDifficulties,
+      specificDifficulty: specificDifficulty, // Add specific difficulty for single-difficulty posts
       status: 'active',
       splashVariant: dayOfYear % 6, // Track which variant was used (0-5)
     } as Record<string, unknown>,
