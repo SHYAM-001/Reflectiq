@@ -5,14 +5,16 @@ import { cn } from '../../lib/utils';
 interface HintButtonProps {
   hintsRemaining: number;
   onUseHint: () => void;
+  isLoading?: boolean;
 }
 
-export const HintButton = ({ hintsRemaining, onUseHint }: HintButtonProps) => {
-  const disabled = hintsRemaining === 0;
+export const HintButton = ({ hintsRemaining, onUseHint, isLoading = false }: HintButtonProps) => {
+  const disabled = hintsRemaining === 0 || isLoading;
   const hintsUsed = 4 - hintsRemaining;
 
   const getHintText = () => {
-    if (disabled) return 'Exit Revealed!';
+    if (isLoading) return 'Revealing...';
+    if (hintsRemaining === 0) return 'Exit Revealed!';
     return `Hint (${hintsRemaining} left)`;
   };
 

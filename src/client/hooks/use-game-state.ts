@@ -39,6 +39,7 @@ interface GameStateData {
   isTimerRunning: boolean;
   finalTime: number | null;
   selectedAnswer: GridPosition | null;
+  isRequestingHint: boolean;
 
   // Results
   scoreResult: ScoreResult | null;
@@ -63,6 +64,7 @@ export const useGameState = () => {
     isTimerRunning: false,
     finalTime: null,
     selectedAnswer: null,
+    isRequestingHint: false,
     scoreResult: null,
     leaderboardPosition: null,
     error: null,
@@ -195,6 +197,7 @@ export const useGameState = () => {
         hintPaths: [],
         isTimerRunning: true,
         finalTime: null,
+        isRequestingHint: false,
         scoreResult: null,
         leaderboardPosition: null,
         error: null,
@@ -218,12 +221,16 @@ export const useGameState = () => {
   };
 
   const requestHint = async () => {
-    if (!state.session || state.hintsUsed >= 4) {
-      toast.error('No more hints available');
+    if (!state.session || state.hintsUsed >= 4 || state.isRequestingHint) {
+      if (state.hintsUsed >= 4) {
+        toast.error('No more hints available');
+      }
       return;
     }
 
     try {
+      setState((prev) => ({ ...prev, isRequestingHint: true }));
+
       const hintNumber = state.hintsUsed + 1;
       const hintResponse = await apiService.requestHint(state.session.sessionId, hintNumber);
 
@@ -238,6 +245,7 @@ export const useGameState = () => {
         hintsUsed,
         revealedQuadrants: [...prev.revealedQuadrants, hintData.hintLevel],
         hintPaths: [...prev.hintPaths, hintData],
+        isRequestingHint: false,
       }));
 
       const percentage = hintData.percentage.toFixed(0);
@@ -246,6 +254,8 @@ export const useGameState = () => {
         description: `Score multiplier now: ${scoreMultiplier.toFixed(1)}x`,
       });
     } catch (error) {
+      setState((prev) => ({ ...prev, isRequestingHint: false }));
+
       const apiError = error as ApiError;
       handleError(new Error(apiError.message), 'Hint Request');
 
@@ -295,6 +305,7 @@ export const useGameState = () => {
       isTimerRunning: false,
       finalTime: null,
       selectedAnswer: null,
+      isRequestingHint: false,
       scoreResult: null,
       leaderboardPosition: null,
       error: null,
@@ -304,7 +315,7 @@ export const useGameState = () => {
   };
 
   const retryGame = () => {
-    startGame();
+    void startGame();
   };
 
   return {

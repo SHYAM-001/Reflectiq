@@ -36,6 +36,7 @@ const Index = () => {
             hintsUsed={gameState.hintsUsed}
             hintPaths={gameState.hintPaths}
             isTimerRunning={gameState.isTimerRunning}
+            isRequestingHint={gameState.isRequestingHint}
             onRequestHint={gameState.requestHint}
             onSubmitAnswer={gameState.submitAnswer}
             onBack={gameState.resetGame}

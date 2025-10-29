@@ -15,6 +15,7 @@ interface PuzzleScreenProps {
   hintsUsed: number;
   hintPaths: HintPath[];
   isTimerRunning: boolean;
+  isRequestingHint?: boolean;
   onRequestHint: () => void;
   onSubmitAnswer: (answer: GridPosition, timeTaken: number) => void;
   onBack: () => void;
@@ -25,6 +26,7 @@ export const PuzzleScreen = ({
   hintsUsed,
   hintPaths,
   isTimerRunning,
+  isRequestingHint = false,
   onRequestHint,
   onSubmitAnswer,
   onBack,
@@ -73,11 +75,14 @@ export const PuzzleScreen = ({
             {puzzle.difficulty} • {puzzle.gridSize}x{puzzle.gridSize}
           </div>
         </div> */}
-
         {/* <div className="flex items-center"> */}
-          {puzzle.difficulty} • {puzzle.gridSize}x{puzzle.gridSize}
-          <Timer isRunning={isTimerRunning} onTimeUpdate={setCurrentTime} />
-          <HintButton hintsRemaining={4 - hintsUsed} onUseHint={onRequestHint} />
+        {puzzle.difficulty} • {puzzle.gridSize}x{puzzle.gridSize}
+        <Timer isRunning={isTimerRunning} onTimeUpdate={setCurrentTime} />
+        <HintButton
+          hintsRemaining={4 - hintsUsed}
+          onUseHint={onRequestHint}
+          isLoading={isRequestingHint}
+        />
         {/* </div> */}
       </div>
 
