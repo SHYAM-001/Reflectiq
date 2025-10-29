@@ -410,26 +410,21 @@ export class LeaderboardService {
         };
       }
 
-      // Use Redis transaction for atomic updates
-      const multi = redis.multi();
-
+      // Update Redis data (Devvit Redis doesn't support multi/transactions)
       // Update puzzle leaderboard
-      multi.zAdd(puzzleLeaderboardKey, { member: userId, score });
+      await redis.zAdd(puzzleLeaderboardKey, { member: userId, score });
 
       // Update daily combined leaderboard (format: "username:difficulty")
       const dailyMember = `${userId}:${submission.difficulty}`;
-      multi.zAdd(dailyLeaderboardKey, { member: dailyMember, score });
+      await redis.zAdd(dailyLeaderboardKey, { member: dailyMember, score });
 
       // Store submission data
-      multi.hSet(submissionKey, userId, JSON.stringify(submission));
+      await redis.hSet(submissionKey, userId, JSON.stringify(submission));
 
       // Set expiration policies
-      multi.expire(puzzleLeaderboardKey, 604800); // 7 days
-      multi.expire(dailyLeaderboardKey, 2592000); // 30 days
-      multi.expire(submissionKey, 604800); // 7 days
-
-      // Execute transaction
-      await multi.exec();
+      await redis.expire(puzzleLeaderboardKey, 604800); // 7 days
+      await redis.expire(dailyLeaderboardKey, 2592000); // 30 days
+      await redis.expire(submissionKey, 604800); // 7 days
 
       console.log(
         `Atomic score update completed for ${userId} in ${puzzleId}: ${score} (previous: ${previousScore})`
