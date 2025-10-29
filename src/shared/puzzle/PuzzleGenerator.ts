@@ -74,10 +74,12 @@ export class PuzzleGenerator {
         // Calculate the complete solution path
         const solutionPath = await this.calculateSolutionPath(materials, entry, config.gridSize);
 
-        // Validate the puzzle has exactly one solution
+        // Validate the puzzle has exactly one solution and meets distance requirements
+        const minDistance = this.getMinimumDistanceForDifficulty(difficulty, config.gridSize);
         if (
           solutionPath &&
           solutionPath.exit &&
+          this.validateMinimumDistance(entry, solutionPath.exit, minDistance) &&
           (await this.validatePuzzleSolution(materials, entry, solutionPath.exit, config.gridSize))
         ) {
           // Generate progressive hint paths from the complete solution
@@ -303,6 +305,60 @@ export class PuzzleGenerator {
       console.error('Error calculating solution path:', error);
       return null;
     }
+  }
+
+  /**
+   * Get minimum distance requirement based on difficulty level
+   */
+  private getMinimumDistanceForDifficulty(difficulty: Difficulty, gridSize: number): number {
+    // Base minimum distances scaled by difficulty
+    const baseDistances = {
+      Easy: 3, // At least 3 boxes away
+      Medium: 4, // At least 4 boxes away
+      Hard: 5, // At least 5 boxes away
+    };
+
+    // Scale based on grid size - larger grids can have proportionally larger minimum distances
+    const scaleFactor = gridSize >= 10 ? 1.2 : 1.0;
+
+    return Math.ceil(baseDistances[difficulty] * scaleFactor);
+  }
+
+  /**
+   * Validate that the exit point is at least the minimum distance away from the entry point
+   */
+  private validateMinimumDistance(
+    entry: GridPosition,
+    exit: GridPosition,
+    minDistance: number
+  ): boolean {
+    const [entryX, entryY] = entry;
+    const [exitX, exitY] = exit;
+
+    // First check: Exit point cannot be the same as entry point
+    if (entryX === exitX && entryY === exitY) {
+      console.log(
+        `Distance validation FAILED: Entry and exit are the same point (${entryX},${entryY})`
+      );
+      return false;
+    }
+
+    // Calculate Manhattan distance (sum of absolute differences)
+    const manhattanDistance = Math.abs(exitX - entryX) + Math.abs(exitY - entryY);
+
+    // Also calculate Euclidean distance for more precise measurement
+    const euclideanDistance = Math.sqrt(Math.pow(exitX - entryX, 2) + Math.pow(exitY - entryY, 2));
+
+    // Use the larger of the two distances to ensure adequate separation
+    const actualDistance = Math.max(manhattanDistance, euclideanDistance);
+
+    const isValid = actualDistance >= minDistance;
+
+    console.log(
+      `Distance validation: Entry(${entryX},${entryY}) -> Exit(${exitX},${exitY}) = ${actualDistance.toFixed(2)} (min: ${minDistance}) - ${isValid ? 'PASS' : 'FAIL'}`
+    );
+
+    return isValid;
   }
 
   /**
