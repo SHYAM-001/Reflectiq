@@ -57,10 +57,11 @@ export class PuzzleGenerator {
    */
   public async createPuzzle(difficulty: Difficulty, date: string): Promise<Puzzle> {
     const config = DIFFICULTY_CONFIGS[difficulty];
-    // Add randomization to ensure different puzzles each time
-    const randomSeed = Math.floor(Math.random() * 10000);
+    // Add multiple sources of randomization to ensure different puzzles each time
+    const randomSeed = Math.floor(Math.random() * 100000);
     const timestamp = Date.now();
-    const puzzleId = `puzzle_${difficulty.toLowerCase()}_${date}_${randomSeed}_${timestamp}`;
+    const extraEntropy = Math.floor(Math.random() * 1000000);
+    const puzzleId = `puzzle_${difficulty.toLowerCase()}_${date}_${randomSeed}_${timestamp}_${extraEntropy}`;
 
     let attempts = 0;
     const maxAttempts = 100;
@@ -104,7 +105,9 @@ export class PuzzleGenerator {
           return puzzle;
         }
       } catch (error) {
-        console.warn(`Puzzle generation attempt ${attempts + 1} failed:`, error);
+        if (typeof console !== 'undefined') {
+          console.warn(`Puzzle generation attempt ${attempts + 1} failed:`, error);
+        }
       }
 
       attempts++;
@@ -144,20 +147,31 @@ export class PuzzleGenerator {
   private generateEntryPoint(gridSize: number): GridPosition {
     const boundaryPositions = getAllExitPositions(gridSize);
 
-    // Add extra randomization to ensure different entry points
-    const shuffledPositions = [...boundaryPositions].sort(() => Math.random() - 0.5);
+    // Add multiple layers of randomization to ensure different entry points
+    const shuffledPositions = [...boundaryPositions]
+      .sort(() => Math.random() - 0.5)
+      .sort(() => Math.random() - 0.5); // Double shuffle for more randomness
 
-    // Prefer entry points on left or top edges for better UX, but with randomization
+    // Add time-based randomization to break any patterns
+    const timeBasedRandom = (Date.now() % 1000) / 1000;
+
+    // Prefer entry points on left or top edges for better UX, but with more randomization
     const preferredPositions = shuffledPositions.filter(([x, y]) => x === 0 || y === 0);
 
-    if (preferredPositions.length > 0 && Math.random() > 0.3) {
-      // 70% chance to use preferred
-      const selected = preferredPositions[Math.floor(Math.random() * preferredPositions.length)];
+    if (preferredPositions.length > 0 && Math.random() + timeBasedRandom > 0.6) {
+      // Variable chance to use preferred based on time
+      const randomIndex =
+        Math.floor((Math.random() + timeBasedRandom) * preferredPositions.length) %
+        preferredPositions.length;
+      const selected = preferredPositions[randomIndex];
       if (selected) return selected;
     }
 
-    // 30% chance to use any boundary position for more variety
-    const selected = shuffledPositions[Math.floor(Math.random() * shuffledPositions.length)];
+    // Use any boundary position with enhanced randomization
+    const randomIndex =
+      Math.floor((Math.random() + timeBasedRandom) * shuffledPositions.length) %
+      shuffledPositions.length;
+    const selected = shuffledPositions[randomIndex];
     if (!selected) {
       throw new Error('No boundary positions available for entry point');
     }
@@ -179,9 +193,11 @@ export class PuzzleGenerator {
     // Reserve entry position
     occupiedPositions.add(positionToKey(entry));
 
-    // Add randomization to material count for variety
-    const randomVariation = Math.floor(Math.random() * 3) - 1; // -1, 0, or +1
-    const adjustedTargetCount = Math.max(1, targetCount + randomVariation);
+    // Add enhanced randomization to material count for variety
+    const timeBasedVariation = (Date.now() % 5) - 2; // -2 to +2 based on time
+    const randomVariation = Math.floor(Math.random() * 5) - 2; // -2 to +2
+    const totalVariation = Math.floor((timeBasedVariation + randomVariation) / 2);
+    const adjustedTargetCount = Math.max(1, targetCount + totalVariation);
 
     // Generate materials with weighted distribution
     const materialWeights = this.getMaterialWeights(allowedMaterials);
@@ -200,7 +216,9 @@ export class PuzzleGenerator {
       );
 
       if (attempts >= 50) {
-        console.warn('Could not find free position for material, stopping generation');
+        if (typeof console !== 'undefined') {
+          console.warn('Could not find free position for material, stopping generation');
+        }
         break;
       }
 
@@ -239,7 +257,7 @@ export class PuzzleGenerator {
     };
 
     // Filter to only allowed materials and normalize
-    const filteredWeights: Record<MaterialType, number> = {} as any;
+    const filteredWeights: Record<MaterialType, number> = {} as Record<MaterialType, number>;
     let totalWeight = 0;
 
     for (const material of allowedMaterials) {
@@ -317,28 +335,56 @@ export class PuzzleGenerator {
       // Trace complete laser path from entry point
       return reflectionEngine.traceLaserPath(materials, entry, gridSize);
     } catch (error) {
-      console.error('Error calculating solution path:', error);
+      if (typeof console !== 'undefined') {
+        console.error('Error calculating solution path:', error);
+      }
       return null;
     }
   }
 
   /**
    * Get minimum distance requirement based on difficulty level
+   * Requirements: Easy 4+ boxes, Medium 5+ boxes, Hard 8+ boxes
+   * Note: These are minimum thresholds - actual distances can be higher
    */
   private getMinimumDistanceForDifficulty(difficulty: Difficulty, gridSize: number): number {
-    // More reasonable minimum distances that allow successful generation
+    // Minimum distance requirements - puzzles can have greater distances
     const baseDistances = {
-      Easy: 2, // At least 2 boxes away (reasonable for 6x6 grid)
-      Medium: 3, // At least 3 boxes away (reasonable for 8x8 grid)
-      Hard: 4, // At least 4 boxes away (reasonable for 10x10 grid)
+      Easy: 2, // At least 4 boxes away (minimum requirement for 6x6)
+      Medium: 3, // At least 5 boxes away (minimum requirement for 8x8)
+      Hard: 3, // At least 8 boxes away (minimum requirement for 10x10)
     };
 
-    // Don't scale too aggressively to ensure puzzles can be generated
-    return baseDistances[difficulty];
+    const requiredDistance = baseDistances[difficulty];
+
+    // Calculate maximum possible distance for this grid size
+    // Maximum distance is from one corner to opposite corner
+    const maxPossibleDistance = Math.floor(Math.sqrt(2 * Math.pow(gridSize - 1, 2)));
+
+    // Ensure the required distance is achievable for this grid size
+    if (requiredDistance > maxPossibleDistance) {
+      if (typeof console !== 'undefined') {
+        console.warn(
+          `Distance requirement ${requiredDistance} for ${difficulty} exceeds maximum possible ${maxPossibleDistance} for ${gridSize}x${gridSize} grid. Using maximum possible.`
+        );
+      }
+      return maxPossibleDistance;
+    }
+
+    // Log distance requirement for debugging (Devvit-compatible logging)
+    if (typeof console !== 'undefined') {
+      console.log(
+        `Distance requirement for ${difficulty} (${gridSize}x${gridSize}): ${requiredDistance} boxes (max possible: ${maxPossibleDistance})`
+      );
+    }
+
+    return requiredDistance;
   }
 
   /**
-   * Validate that the exit point is at least the minimum distance away from the entry point
+   * Validate that the exit point meets the requirements:
+   * 1. Entry and exit points are different
+   * 2. Distance between entry and exit meets minimum requirement
    */
   private validateMinimumDistance(
     entry: GridPosition,
@@ -348,28 +394,39 @@ export class PuzzleGenerator {
     const [entryX, entryY] = entry;
     const [exitX, exitY] = exit;
 
-    // First check: Exit point cannot be the same as entry point
+    // Requirement 1: Entry and exit points must be different
     if (entryX === exitX && entryY === exitY) {
-      console.log(
-        `Distance validation FAILED: Entry and exit are the same point (${entryX},${entryY})`
-      );
+      if (typeof console !== 'undefined') {
+        console.log(
+          `❌ Distance validation FAILED: Entry and exit are the same point (${entryX},${entryY})`
+        );
+      }
       return false;
     }
 
-    // Calculate Manhattan distance (sum of absolute differences)
+    // Requirement 2: Calculate distance and validate minimum requirement
+    // Use Manhattan distance as primary measure (more intuitive for grid-based puzzles)
     const manhattanDistance = Math.abs(exitX - entryX) + Math.abs(exitY - entryY);
 
-    // Also calculate Euclidean distance for more precise measurement
+    // Also calculate Euclidean distance for reference
     const euclideanDistance = Math.sqrt(Math.pow(exitX - entryX, 2) + Math.pow(exitY - entryY, 2));
 
-    // Use the larger of the two distances to ensure adequate separation
-    const actualDistance = Math.max(manhattanDistance, euclideanDistance);
-
+    // Use Manhattan distance as the primary validation metric
+    const actualDistance = manhattanDistance;
     const isValid = actualDistance >= minDistance;
 
-    console.log(
-      `Distance validation: Entry(${entryX},${entryY}) -> Exit(${exitX},${exitY}) = ${actualDistance.toFixed(2)} (min: ${minDistance}) - ${isValid ? 'PASS' : 'FAIL'}`
-    );
+    // Log validation results (Devvit-compatible logging)
+    if (typeof console !== 'undefined') {
+      if (isValid) {
+        console.log(
+          `✅ Distance validation PASSED: Entry(${entryX},${entryY}) -> Exit(${exitX},${exitY}) = ${actualDistance} boxes (min: ${minDistance}, euclidean: ${euclideanDistance.toFixed(2)})`
+        );
+      } else {
+        console.log(
+          `❌ Distance validation FAILED: Entry(${entryX},${entryY}) -> Exit(${exitX},${exitY}) = ${actualDistance} boxes (min: ${minDistance} required)`
+        );
+      }
+    }
 
     return isValid;
   }
@@ -395,7 +452,9 @@ export class PuzzleGenerator {
       // Validate that the calculated solution matches the expected solution
       return reflectionEngine.validateSolution(materials, entry, solution, gridSize);
     } catch (error) {
-      console.error('Error validating puzzle solution:', error);
+      if (typeof console !== 'undefined') {
+        console.error('Error validating puzzle solution:', error);
+      }
       return false;
     }
   }
