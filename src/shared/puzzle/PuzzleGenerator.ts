@@ -351,7 +351,7 @@ export class PuzzleGenerator {
     // Minimum distance requirements - puzzles can have greater distances
     const baseDistances = {
       Easy: 2, // At least 4 boxes away (minimum requirement for 6x6)
-      Medium: 3, // At least 5 boxes away (minimum requirement for 8x8)
+      Medium: 2, // At least 5 boxes away (minimum requirement for 8x8)
       Hard: 3, // At least 8 boxes away (minimum requirement for 10x10)
     };
 
