@@ -1261,7 +1261,10 @@ router.post('/internal/scheduler/post-leaderboard', async (_req, res): Promise<v
     }
 
     // Submit the leaderboard post
-    if (!context.subredditName) {
+    // Get subreddit name from context or use fallback for scheduler
+    const subredditName = context.subredditName || 'reflectiq_dev';
+
+    if (!subredditName) {
       throw new Error('Subreddit name not available in context');
     }
 
@@ -1390,45 +1393,19 @@ router.post('/internal/scheduler/post-daily-puzzle', async (_req, res): Promise<
     // Get today's puzzle statistics
     const puzzleStats = await puzzleService.getPuzzleStats(today);
 
-    if (!context.subredditName) {
+    // Get subreddit name from context or use fallback for scheduler
+    const subredditName = context.subredditName || 'reflectiq_dev';
+
+    if (!subredditName) {
       throw new Error('Subreddit name not available in context');
     }
 
-    // Create the daily puzzle post
-    const postText = `# 🎯 Daily ReflectIQ Puzzle - ${today}
-
-Welcome to today's ReflectIQ challenge! Trace the laser path through reflective materials to find the exit point.
-
-## 🎮 How to Play
-1. **Choose your difficulty:**
-   - 🟢 **Easy** (6x6 grid) - Mirrors and absorbers only
-   - 🟡 **Medium** (8x8 grid) - Mirrors, water, glass, and absorbers  
-   - 🔴 **Hard** (10x10 grid) - All materials including metal
-
-2. **Trace the laser path** through the materials
-3. **Submit your answer** as a comment with format: \`Exit: [x,y]\`
-
-## 🏆 Scoring
-- **Base Score:** Easy (150), Medium (400), Hard (800) points
-- **Time Bonus:** Faster solutions score higher
-- **Hint Penalty:** Each hint reduces your score multiplier
-
-## 📊 Today's Stats
-- **Puzzles Available:** ${puzzleStats.difficulties.length}
-- **Generated:** ${puzzleStats.generatedAt ? new Date(puzzleStats.generatedAt).toLocaleTimeString() : 'Recently'}
-
----
-
-**🚀 Ready to play?** Click this post to start the interactive puzzle!
-
-*Good luck, and may your laser find its way! ⚡*`;
+    // Create interactive custom posts for each difficulty level
+    const availableDifficulties = puzzleStats.difficulties as ('easy' | 'medium' | 'hard')[];
 
     try {
-      const post = await reddit.submitPost({
-        subredditName: context.subredditName,
-        title: `🎯 Daily ReflectIQ Puzzle - ${today}`,
-        text: postText,
-      });
+      // Create a single post with all available difficulties
+      const post = await createPost('daily', availableDifficulties);
 
       console.log(`Successfully posted daily puzzle for ${today}: ${post.id}`);
 
