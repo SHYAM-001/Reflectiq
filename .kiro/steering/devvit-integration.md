@@ -15,21 +15,21 @@ fileMatchPattern: '**/server/**/*.ts'
 - Add interactive elements for user engagement
 - Set appropriate post flairs when available
 
-### Comment Processing
+### In-App Submission Processing
 
-- Parse answer formats: "Exit: A1" or "Exit: [x,y]"
-- Send private messages for answer feedback
-- Avoid public comment replies to maintain privacy
-- Handle malformed input gracefully
-- Log all answer attempts for analytics
+- Use /api/puzzle/submit endpoint for answer validation
+- Post public celebration comments for successful completions
+- Format celebration: "🎉 u/username completed the Easy puzzle in 2:15 with 1 hint! Final score: 180 points! (Rank #3) 🚀"
+- Post encouragement comments for incorrect attempts
+- Handle all scoring and leaderboard updates automatically
 
-### Private Messaging
+### Public Celebration Comments
 
-- Use encouraging language for correct answers
-- Provide helpful hints for incorrect answers
-- Include score information and difficulty level
-- Add links to leaderboards and next puzzles
-- Maintain consistent message formatting
+- Use encouraging language for successful completions
+- Include time, hints used, score, and rank information
+- Format consistently: "🎉 u/username completed the [difficulty] puzzle in [time] with [hints] hints! Final score: [score] points! (Rank #[rank]) 🚀"
+- Post encouragement for attempts: "💪 u/username gave it a great try on the [difficulty] puzzle! Keep analyzing those laser paths - you've got this! 🔬✨"
+- Maintain positive, community-building tone
 
 ## Scheduling and Automation
 

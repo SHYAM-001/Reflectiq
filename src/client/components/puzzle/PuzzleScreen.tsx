@@ -47,23 +47,6 @@ export const PuzzleScreen = ({
 
     // Stop the timer first
     onSubmitAnswer(selectedAnswer, currentTime);
-
-    // Show success message and navigate to Reddit
-    // toast.success('Time stopped! Navigating to Reddit to submit your answer...', {
-    //   duration: 3000,
-    // });
-
-    // Navigate to Reddit with the comment text
-    // try {
-    //   await navigateToCommentWithText(formattedAnswer);
-    // } catch (error) {
-    //   console.error('Navigation failed:', error);
-    //   // Fallback: show instructions
-    //   toast.info(`Please submit this as a comment: "${formattedAnswer}"`, {
-    //     duration: 8000,
-    //     description: 'Copy the text above and paste it as a comment on the Reddit post',
-    //   });
-    // }
   };
 
   return (

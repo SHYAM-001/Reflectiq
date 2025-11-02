@@ -5,7 +5,7 @@
  */
 
 import { Router } from 'express';
-import { context } from '@devvit/web/server';
+import { context, reddit } from '@devvit/web/server';
 import { redisClient } from '../utils/redisClient.js';
 import PuzzleRepository from '../data/PuzzleRepository.js';
 import { LeaderboardService } from '../services/LeaderboardService.js';
@@ -119,7 +119,7 @@ router.post(
 
     // Extract difficulty from puzzle ID (format: puzzle_easy_2024-01-01)
     const difficultyMatch = puzzleId.match(/puzzle_(easy|medium|hard)_/);
-    if (!difficultyMatch) {
+    if (!difficultyMatch || !difficultyMatch[1]) {
       return sendErrorResponse(res, 'VALIDATION_ERROR', 'Invalid puzzle ID format');
     }
 
@@ -277,7 +277,6 @@ router.post(
     // Check if session is still active
     if (sessionData.status !== 'active') {
       return sendErrorResponse(res, 'SESSION_EXPIRED', 'Session is no longer active');
-      return res.status(400).json(response);
     }
 
     // Get puzzle data
@@ -304,7 +303,7 @@ router.post(
     // Calculate score using the scoring formula from requirements
     const config = DIFFICULTY_CONFIGS[sessionData.difficulty];
     const baseScore = config.baseScore;
-    const hintMultiplier = HINT_CONFIG.scoreMultipliers[sessionData.hintsUsed];
+    const hintMultiplier = HINT_CONFIG.scoreMultipliers[sessionData.hintsUsed] || 1;
     const timeMultiplier = Math.max(0, (config.maxTime - timeTaken) / config.maxTime);
 
     const finalScore = correct ? Math.round(baseScore * hintMultiplier * timeMultiplier) : 0;
@@ -403,6 +402,75 @@ router.post(
       await redisClient.set(`sessions:${sessionId}`, JSON.stringify(sessionData), { ttl: 3600 });
     } catch (error) {
       console.warn('Failed to update session status:', error);
+    }
+
+    // Post public comment announcement for completed puzzles
+    if (finalScore > 0) {
+      try {
+        // Format time as MM:SS
+        const minutes = Math.floor(timeTaken / 60);
+        const seconds = Math.floor(timeTaken % 60);
+        const timeFormatted = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+
+        // Debug variables before creating comment text
+        console.log('Comment variables:', {
+          userId: sessionData.userId,
+          difficulty: sessionData.difficulty,
+          timeFormatted,
+          hintsUsed: sessionData.hintsUsed,
+          finalScore,
+          leaderboardPosition,
+        });
+
+        // Create celebration comment
+        const commentText = `🎉 u/${sessionData.userId} completed the ${sessionData.difficulty} puzzle in ${timeFormatted} with ${sessionData.hintsUsed} hints! Final score: ${finalScore} points! ${leaderboardPosition ? `(Rank #${leaderboardPosition})` : ''} 🚀`;
+
+        console.log('Generated comment text:', commentText);
+        console.log('Comment text type:', typeof commentText);
+        console.log('Comment text length:', commentText?.length);
+
+        // Get current post context to determine which post to comment on
+        console.log('Context object:', JSON.stringify(context, null, 2));
+        const { postId } = context;
+
+        if (postId) {
+          console.log(`Attempting to post celebration comment to post ${postId}`);
+          await reddit.submitComment({
+            id: postId,
+            text: commentText,
+          });
+          console.log(
+            `✅ Posted celebration comment for ${sessionData.userId}: ${finalScore} points`
+          );
+        } else {
+          console.warn('❌ No postId available in context for celebration comment');
+          console.log('Available context keys:', Object.keys(context));
+          console.log('Full context:', context);
+        }
+      } catch (error) {
+        console.warn(`Failed to post celebration comment for ${sessionData.userId}:`, error);
+        // Don't fail the submission if comment posting fails
+      }
+    } else if (correct === false) {
+      // Post encouragement comment for incorrect answers
+      try {
+        const commentText = `💪 u/${sessionData.userId} gave it a great try on the ${sessionData.difficulty} puzzle! Keep analyzing those laser paths - you've got this! 🔬✨`;
+
+        const { postId } = context;
+        if (postId) {
+          console.log(`Attempting to post encouragement comment to post ${postId}`);
+          await reddit.submitComment({
+            id: postId,
+            text: commentText,
+          });
+          console.log(`✅ Posted encouragement comment for ${sessionData.userId}`);
+        } else {
+          console.warn('❌ No postId available in context for encouragement comment');
+          console.log('Available context keys:', Object.keys(context));
+        }
+      } catch (error) {
+        console.warn(`Failed to post encouragement comment for ${sessionData.userId}:`, error);
+      }
     }
 
     sendSuccessResponse(res, {

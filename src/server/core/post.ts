@@ -67,7 +67,7 @@ const generateSplashConfig = (
         '🌟 Start Quest',
       ],
       headings: [
-        `🔴 Daily ReflectIQ Challenge${difficultyText}`,
+        `Daily ReflectIQ Challenge${difficultyText}`,
         `⚡ Today's Laser Puzzle${difficultyText}`,
         `🎯 ${dayOfWeek}'s Brain Teaser${difficultyText}`,
         `🌟 ReflectIQ: Light & Logic${difficultyText}`,
@@ -211,7 +211,7 @@ export const createPost = async (
 
   // Create dynamic title based on puzzle type and difficulty
   const titlePrefixes = {
-    daily: '🔴 Daily ReflectIQ Puzzle',
+    daily: 'Daily ReflectIQ Puzzle',
     special: '⭐ Special ReflectIQ Challenge',
     challenge: '🏆 ReflectIQ Championship',
   };

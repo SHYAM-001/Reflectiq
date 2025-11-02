@@ -77,7 +77,7 @@ export const useGameState = () => {
 
   // Initialize app on mount
   useEffect(() => {
-    initializeApp();
+    void initializeApp();
   }, []);
 
   const initializeApp = async () => {
@@ -273,21 +273,54 @@ export const useGameState = () => {
     }
 
     try {
-      // Stop the timer and store the submission locally
+      // Stop the timer immediately
       setState((prev) => ({
         ...prev,
         isTimerRunning: false,
         finalTime: timeTaken,
         selectedAnswer: answer,
-        gameState: 'completed', // Move to completed state to show submission instructions
       }));
 
-      // Store the session data for when the Reddit comment is processed
-      // The actual submission will be handled by the comment trigger on the server
-      console.log('Answer submitted locally, waiting for Reddit comment processing');
+      // Submit the answer to the server
+      console.log('Submitting answer to server:', {
+        sessionId: state.session.sessionId,
+        answer,
+        timeTaken,
+      });
+
+      const response = await apiService.submitAnswer(state.session.sessionId, answer, timeTaken);
+
+      if (response.success && response.data) {
+        const { scoreResult, submission, leaderboardPosition } = response.data;
+
+        // Update state with results
+        setState((prev) => ({
+          ...prev,
+          scoreResult,
+          leaderboardPosition,
+          gameState: 'completed',
+        }));
+
+        // Show success message
+        if (scoreResult.correct) {
+          toast.success(`Correct! Score: ${scoreResult.finalScore} points`, {
+            description: `Completed in ${Math.floor(timeTaken / 60)}:${(timeTaken % 60).toString().padStart(2, '0')} with ${scoreResult.hintsUsed} hints`,
+            duration: 5000,
+          });
+        } else {
+          toast.error('Incorrect answer. Try again!', {
+            description: 'Keep analyzing the laser path and material interactions',
+            duration: 4000,
+          });
+          // Allow retry for incorrect answers
+          setState((prev) => ({ ...prev, isTimerRunning: true, gameState: 'playing' }));
+        }
+      } else {
+        throw new Error(response.error?.message || 'Submission failed');
+      }
     } catch (error) {
-      console.error('Failed to prepare answer submission:', error);
-      toast.error('Failed to prepare submission. Please try again.');
+      console.error('Failed to submit answer:', error);
+      toast.error('Failed to submit answer. Please try again.');
       setState((prev) => ({ ...prev, isTimerRunning: true, gameState: 'playing' }));
     }
   };

@@ -108,36 +108,6 @@ export const SubmissionScreen = ({
           </div>
         </div>
 
-        {/* Comment Submission */}
-        <div className="bg-card/50 backdrop-blur-sm rounded-xl p-6 border border-border/50 space-y-4">
-          <div className="flex items-center space-x-2 text-foreground/80">
-            <MessageCircle className="h-5 w-5 text-primary" />
-            <span className="font-semibold">Submit as Reddit Comment:</span>
-          </div>
-
-          {/* Comment Text */}
-          <div className="bg-card/30 rounded-lg p-4 border border-border/30">
-            <div className="flex items-center justify-between">
-              <code className="text-lg font-orbitron text-primary font-bold">{commentText}</code>
-              <Button onClick={handleCopyComment} variant="ghost" size="sm" className="ml-2">
-                {copied ? (
-                  <CheckCircle className="h-4 w-4 text-green-500" />
-                ) : (
-                  <Copy className="h-4 w-4" />
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {/* Instructions */}
-          <div className="space-y-2 text-sm text-foreground/70">
-            <p>1. Copy the text above</p>
-            <p>2. Go to the Reddit post</p>
-            <p>3. Paste it as a comment</p>
-            <p>4. Your score will be calculated automatically!</p>
-          </div>
-        </div>
-
         {/* Actions */}
         <div className="flex flex-col gap-3">
           <Button
@@ -145,7 +115,7 @@ export const SubmissionScreen = ({
             className="w-full bg-gradient-primary text-primary-foreground font-poppins font-semibold py-3 rounded-xl shadow-glow-primary hover:scale-105 transition-all duration-300"
           >
             <MessageCircle className="mr-2 h-4 w-4" />
-            Submit Comment on Reddit
+            Navigate to Comment Section
           </Button>
 
           <Button
