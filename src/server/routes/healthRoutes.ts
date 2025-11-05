@@ -6,6 +6,7 @@
 
 import { Router } from 'express';
 import { redisClient } from '../utils/redisClient.js';
+import { FeatureFlagService } from '../services/FeatureFlagService.js';
 import {
   asyncHandler,
   sendSuccessResponse,
@@ -193,6 +194,72 @@ router.post(
       message: 'Error monitoring metrics have been reset',
       timestamp: new Date().toISOString(),
     });
+  })
+);
+
+/**
+ * GET /api/feature-flags
+ * Get current feature flag configuration and status
+ */
+router.get(
+  '/feature-flags',
+  enhancedAsyncHandler(async (req, res) => {
+    const featureFlagService = FeatureFlagService.getInstance();
+
+    try {
+      const flags = await featureFlagService.getFeatureFlags();
+      const performanceMetrics = await featureFlagService.getPerformanceMetrics();
+      const enhancedEnabled = await featureFlagService.isEnhancedGenerationEnabled();
+      const rolloutPercentage = await featureFlagService.getEnhancedGenerationRollout();
+
+      const flagStatus = {
+        flags,
+        status: {
+          enhancedGenerationEnabled: enhancedEnabled,
+          rolloutPercentage,
+          fallbackEnabled: flags.fallbackToLegacy,
+        },
+        metrics: performanceMetrics,
+        timestamp: new Date().toISOString(),
+      };
+
+      sendSuccessResponse(res, flagStatus);
+    } catch (error) {
+      console.error('Error fetching feature flags:', error);
+      sendErrorResponse(res, 'INTERNAL_ERROR', 'Failed to fetch feature flags');
+    }
+  })
+);
+
+/**
+ * POST /api/feature-flags/update
+ * Update feature flag configuration (for development/testing)
+ */
+router.post(
+  '/feature-flags/update',
+  enhancedAsyncHandler(async (req, res) => {
+    const featureFlagService = FeatureFlagService.getInstance();
+
+    try {
+      const updates = req.body;
+
+      // Validate updates
+      if (!updates || typeof updates !== 'object') {
+        return sendErrorResponse(res, 'VALIDATION_ERROR', 'Invalid update payload');
+      }
+
+      await featureFlagService.updateFeatureFlags(updates);
+      const updatedFlags = await featureFlagService.getFeatureFlags();
+
+      sendSuccessResponse(res, {
+        message: 'Feature flags updated successfully',
+        flags: updatedFlags,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('Error updating feature flags:', error);
+      sendErrorResponse(res, 'INTERNAL_ERROR', 'Failed to update feature flags');
+    }
   })
 );
 

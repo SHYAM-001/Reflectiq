@@ -79,6 +79,7 @@ export class ReflectionEngine {
     let currentDirection = normalizeAngle(startDirection);
     let currentIntensity = 1.0;
     let bounceCount = 0;
+    let hasMovedFromEntry = false; // Track if we've moved from the entry point
 
     // Add initial step
     steps.push({
@@ -115,6 +116,7 @@ export class ReflectionEngine {
           currentIntensity = interaction.result.intensity;
           currentPosition = interaction.result.position;
           bounceCount++;
+          hasMovedFromEntry = true; // We've moved from the entry point
 
           steps.push({
             position: currentPosition,
@@ -147,6 +149,7 @@ export class ReflectionEngine {
       } else {
         // No material hit, continue in same direction
         currentPosition = nextPosition;
+        hasMovedFromEntry = true; // We've moved from the entry point
 
         steps.push({
           position: currentPosition,
@@ -155,8 +158,12 @@ export class ReflectionEngine {
           bounceCount,
         });
 
-        // Check if we reached an exit point
-        if (isExitPoint(currentPosition, gridSize)) {
+        // Check if we reached an exit point (but not if we're still at the entry point)
+        if (
+          isExitPoint(currentPosition, gridSize) &&
+          hasMovedFromEntry &&
+          !positionsEqual(currentPosition, startPosition)
+        ) {
           return {
             steps,
             finalPosition: currentPosition,

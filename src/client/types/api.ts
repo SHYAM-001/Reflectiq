@@ -31,4 +31,10 @@ export type {
   GetLeaderboardRequest,
   GetLeaderboardResponse,
   InitResponse,
+  GeneratePuzzleRequest,
+  GeneratePuzzleResponse,
+  ValidatePuzzleRequest,
+  ValidatePuzzleResponse,
+  RegeneratePuzzleRequest,
+  RegeneratePuzzleResponse,
 } from '../../shared/types/api';

@@ -106,6 +106,40 @@ export interface GetPuzzleLeaderboardResponse
     totalPlayers: number;
   }> {}
 
+// Enhanced puzzle generation endpoints
+
+// POST /api/puzzle/generate
+export interface GeneratePuzzleRequest {
+  difficulty: Difficulty;
+  forceRegeneration?: boolean;
+  maxAttempts?: number; // Default: 10
+  targetComplexity?: number; // 1-10 scale
+  preferredMaterials?: string[]; // MaterialType names
+}
+
+export interface GeneratePuzzleResponse extends ApiResponse<Puzzle> {}
+
+// GET /api/puzzle/validate
+export interface ValidatePuzzleRequest {
+  puzzleId: string;
+}
+
+export interface ValidatePuzzleResponse
+  extends ApiResponse<{
+    validationResult: import('./guaranteed-generation.js').ValidationResult;
+    generationMetadata?: import('./guaranteed-generation.js').PuzzleGenerationMetadata;
+  }> {}
+
+// POST /api/puzzle/regenerate
+export interface RegeneratePuzzleRequest {
+  puzzleId: string;
+  reason: string;
+  difficulty?: Difficulty;
+  preserveSettings?: boolean;
+}
+
+export interface RegeneratePuzzleResponse extends ApiResponse<Puzzle> {}
+
 // Internal scheduler endpoints
 export interface SchedulerResponse
   extends ApiResponse<{

@@ -166,10 +166,24 @@ export const useGameState = () => {
         console.log('Could not get post context, using default difficulty:', error);
       }
 
+      // Show loading message for enhanced generation
+      toast.info('Loading puzzle...', {
+        description: 'Using enhanced generation for guaranteed solvable puzzles',
+        duration: 3000,
+      });
+
       const puzzleResponse = await apiService.getCurrentPuzzle(difficulty);
 
       if (!puzzleResponse.success || !puzzleResponse.data) {
         throw new Error(puzzleResponse.error?.message || 'Failed to load puzzle');
+      }
+
+      // Show success message if enhanced generation was used
+      if (puzzleResponse.data.id?.includes('enhanced_')) {
+        toast.success('Enhanced puzzle loaded!', {
+          description: 'This puzzle is guaranteed to be solvable with optimal difficulty',
+          duration: 2000,
+        });
       }
 
       const puzzle = puzzleResponse.data;

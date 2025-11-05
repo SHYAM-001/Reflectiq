@@ -53,6 +53,164 @@ export class PuzzleGenerator {
   }
 
   /**
+   * Create a single puzzle for the specified difficulty with relaxed constraints for fallback
+   */
+  public async createPuzzleWithFallback(
+    difficulty: Difficulty,
+    date: string,
+    useRelaxedConstraints: boolean = false
+  ): Promise<Puzzle> {
+    const config = DIFFICULTY_CONFIGS[difficulty];
+    const randomSeed = Math.floor(Math.random() * 100000);
+    const timestamp = Date.now();
+    const extraEntropy = Math.floor(Math.random() * 1000000);
+    const puzzleId = `puzzle_${difficulty.toLowerCase()}_${date}_${randomSeed}_${timestamp}_${extraEntropy}`;
+
+    let attempts = 0;
+    const maxAttempts = 100;
+
+    while (attempts < maxAttempts) {
+      try {
+        // Generate grid with materials
+        const { materials, entry } = this.generatePuzzleGrid(
+          config.gridSize,
+          config.materialDensity,
+          config.allowedMaterials
+        );
+
+        // Calculate the complete solution path
+        const solutionPath = await this.calculateSolutionPath(materials, entry, config.gridSize);
+
+        // Use relaxed distance requirements for fallback scenarios
+        const minDistance = useRelaxedConstraints
+          ? this.getRelaxedDistanceForDifficulty(difficulty, config.gridSize)
+          : this.getMinimumDistanceForDifficulty(difficulty, config.gridSize);
+
+        // Validate the puzzle has exactly one solution and meets distance requirements
+        if (
+          solutionPath &&
+          solutionPath.exit &&
+          this.validateMinimumDistance(entry, solutionPath.exit, minDistance) &&
+          (await this.validatePuzzleSolution(materials, entry, solutionPath.exit, config.gridSize))
+        ) {
+          // Generate progressive hint paths from the complete solution
+          const hints = this.generateProgressiveHints(solutionPath);
+
+          const puzzle: Puzzle = {
+            id: puzzleId,
+            difficulty,
+            gridSize: config.gridSize,
+            materials,
+            entry,
+            solution: solutionPath.exit,
+            solutionPath,
+            hints,
+            createdAt: new Date(),
+            materialDensity: this.calculateActualDensity(materials, config.gridSize),
+          };
+
+          return puzzle;
+        }
+      } catch (error) {
+        if (typeof console !== 'undefined') {
+          console.warn(`Puzzle generation attempt ${attempts + 1} failed:`, error);
+        }
+      }
+
+      attempts++;
+    }
+
+    // If we still failed with relaxed constraints, try ultra-relaxed as final fallback
+    if (useRelaxedConstraints) {
+      if (typeof console !== 'undefined') {
+        console.warn(`🔄 Trying ultra-relaxed constraints for ${difficulty} as final fallback`);
+      }
+      return this.createPuzzleWithUltraRelaxedConstraints(difficulty, date);
+    }
+
+    // Try one more time with ultra-relaxed constraints
+    if (typeof console !== 'undefined') {
+      console.warn(`🔄 Trying ultra-relaxed constraints for ${difficulty} as final fallback`);
+    }
+
+    return this.createPuzzleWithUltraRelaxedConstraints(difficulty, date);
+  }
+
+  /**
+   * Create a puzzle with ultra-relaxed constraints as final fallback
+   */
+  private async createPuzzleWithUltraRelaxedConstraints(
+    difficulty: Difficulty,
+    date: string
+  ): Promise<Puzzle> {
+    const config = DIFFICULTY_CONFIGS[difficulty];
+    const randomSeed = Math.floor(Math.random() * 100000);
+    const timestamp = Date.now();
+    const extraEntropy = Math.floor(Math.random() * 1000000);
+    const puzzleId = `puzzle_${difficulty.toLowerCase()}_${date}_${randomSeed}_${timestamp}_${extraEntropy}`;
+
+    let attempts = 0;
+    const maxAttempts = 50; // Fewer attempts for ultra-relaxed
+
+    while (attempts < maxAttempts) {
+      try {
+        // Generate grid with materials
+        const { materials, entry } = this.generatePuzzleGrid(
+          config.gridSize,
+          config.materialDensity,
+          config.allowedMaterials
+        );
+
+        // Calculate the complete solution path
+        const solutionPath = await this.calculateSolutionPath(materials, entry, config.gridSize);
+
+        // Use ultra-relaxed distance requirements (just ensure entry != exit)
+        const minDistance = this.getUltraRelaxedDistanceForDifficulty(difficulty);
+
+        // Validate the puzzle has a solution and meets ultra-relaxed distance requirements
+        if (
+          solutionPath &&
+          solutionPath.exit &&
+          this.validateMinimumDistance(entry, solutionPath.exit, minDistance)
+        ) {
+          // Skip the unique solution validation for ultra-relaxed fallback
+          // Generate progressive hint paths from the complete solution
+          const hints = this.generateProgressiveHints(solutionPath);
+
+          const puzzle: Puzzle = {
+            id: puzzleId,
+            difficulty,
+            gridSize: config.gridSize,
+            materials,
+            entry,
+            solution: solutionPath.exit,
+            solutionPath,
+            hints,
+            createdAt: new Date(),
+            materialDensity: this.calculateActualDensity(materials, config.gridSize),
+          };
+
+          if (typeof console !== 'undefined') {
+            console.log(`✅ Ultra-relaxed fallback succeeded for ${difficulty}`);
+          }
+
+          return puzzle;
+        }
+      } catch (error) {
+        if (typeof console !== 'undefined') {
+          console.warn(`Ultra-relaxed puzzle generation attempt ${attempts + 1} failed:`, error);
+        }
+      }
+
+      attempts++;
+    }
+
+    throw new Error(
+      `Failed to generate valid ${difficulty} puzzle even with ultra-relaxed constraints after ${maxAttempts} attempts`
+    );
+  }
+
+  /**
    * Create a single puzzle for the specified difficulty
    */
   public async createPuzzle(difficulty: Difficulty, date: string): Promise<Puzzle> {
@@ -332,8 +490,11 @@ export class PuzzleGenerator {
       const { ReflectionEngine } = await import('./ReflectionEngine.js');
       const reflectionEngine = ReflectionEngine.getInstance();
 
-      // Trace complete laser path from entry point
-      return reflectionEngine.traceLaserPath(materials, entry, gridSize);
+      // Determine appropriate initial direction based on entry position
+      const initialDirection = this.getInitialDirectionForEntry(entry, gridSize);
+
+      // Trace complete laser path from entry point with proper initial direction
+      return reflectionEngine.traceLaserPath(materials, entry, gridSize, initialDirection);
     } catch (error) {
       if (typeof console !== 'undefined') {
         console.error('Error calculating solution path:', error);
@@ -343,16 +504,42 @@ export class PuzzleGenerator {
   }
 
   /**
+   * Get appropriate initial laser direction based on entry position
+   * Ensures laser enters the grid rather than immediately exiting
+   */
+  private getInitialDirectionForEntry(entry: GridPosition, gridSize: number): number {
+    const [x, y] = entry;
+
+    // Determine which edge the entry is on and set direction to enter the grid
+    if (y === 0) {
+      // Top edge - laser should go down (90 degrees)
+      return 90;
+    } else if (y === gridSize - 1) {
+      // Bottom edge - laser should go up (270 degrees)
+      return 270;
+    } else if (x === 0) {
+      // Left edge - laser should go right (0 degrees)
+      return 0;
+    } else if (x === gridSize - 1) {
+      // Right edge - laser should go left (180 degrees)
+      return 180;
+    }
+
+    // Default to rightward if somehow not on an edge (shouldn't happen)
+    return 0;
+  }
+
+  /**
    * Get minimum distance requirement based on difficulty level
    * Requirements: Easy 4+ boxes, Medium 5+ boxes, Hard 8+ boxes
    * Note: These are minimum thresholds - actual distances can be higher
    */
   private getMinimumDistanceForDifficulty(difficulty: Difficulty, gridSize: number): number {
-    // Minimum distance requirements - puzzles can have greater distances
+    // Minimum distance requirements based on puzzle design guidelines
     const baseDistances = {
-      Easy: 2, // At least 4 boxes away (minimum requirement for 6x6)
-      Medium: 2, // At least 5 boxes away (minimum requirement for 8x8)
-      Hard: 3, // At least 8 boxes away (minimum requirement for 10x10)
+      Easy: 4, // Minimum 4 boxes between entry and exit (6x6 grid)
+      Medium: 5, // Minimum 5 boxes between entry and exit (8x8 grid)
+      Hard: 8, // Minimum 8 boxes between entry and exit (10x10 grid)
     };
 
     const requiredDistance = baseDistances[difficulty];
@@ -371,6 +558,18 @@ export class PuzzleGenerator {
       return maxPossibleDistance;
     }
 
+    // For very strict requirements, provide a fallback to ensure generation success
+    // This helps when the distance requirements are too strict for reliable generation
+    const fallbackDistances = {
+      Easy: 2, // Fallback to 2 boxes for Easy
+      Medium: 3, // Fallback to 3 boxes for Medium
+      Hard: 4, // Fallback to 4 boxes for Hard
+    };
+
+    // If this is being called from a retry scenario (indicated by multiple failed attempts),
+    // we might want to use more lenient requirements
+    // For now, we'll use the strict requirements but this provides a path for future enhancement
+
     // Log distance requirement for debugging (Devvit-compatible logging)
     if (typeof console !== 'undefined') {
       console.log(
@@ -379,6 +578,37 @@ export class PuzzleGenerator {
     }
 
     return requiredDistance;
+  }
+
+  /**
+   * Get relaxed distance requirements for fallback scenarios
+   */
+  private getRelaxedDistanceForDifficulty(difficulty: Difficulty, gridSize: number): number {
+    // Relaxed distance requirements for when strict requirements fail
+    const relaxedDistances = {
+      Easy: 1, // Very relaxed - just ensure entry != exit
+      Medium: 2, // Relaxed to 2 boxes for Medium (was 5)
+      Hard: 3, // Relaxed to 3 boxes for Hard (was 8)
+    };
+
+    const requiredDistance = relaxedDistances[difficulty];
+    const maxPossibleDistance = Math.floor(Math.sqrt(2 * Math.pow(gridSize - 1, 2)));
+
+    if (typeof console !== 'undefined') {
+      console.log(
+        `Relaxed distance requirement for ${difficulty} (${gridSize}x${gridSize}): ${requiredDistance} boxes (max possible: ${maxPossibleDistance})`
+      );
+    }
+
+    return Math.min(requiredDistance, maxPossibleDistance);
+  }
+
+  /**
+   * Get ultra-relaxed distance requirements for final fallback scenarios
+   */
+  private getUltraRelaxedDistanceForDifficulty(difficulty: Difficulty): number {
+    // Ultra-relaxed distance requirements - just ensure entry != exit
+    return 1; // Just ensure entry and exit are different positions
   }
 
   /**

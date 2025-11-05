@@ -23,15 +23,66 @@ class ApiService {
   }
 
   /**
-   * Get current puzzle by difficulty
+   * Get current puzzle by difficulty using enhanced generation
    */
   async getCurrentPuzzle(difficulty: Difficulty): Promise<GetPuzzleResponse> {
     try {
+      // First try to get existing puzzle for today
       const response = await fetch(`/api/puzzle/current?difficulty=${difficulty}`, {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        if (result.success && result.data) {
+          return result;
+        }
+      }
+
+      // If no puzzle exists or failed, generate using enhanced system
+      console.log(`No existing puzzle found for ${difficulty}, generating with enhanced system...`);
+
+      const enhancedPuzzle = await this.generateEnhancedPuzzle(difficulty);
+
+      return {
+        success: true,
+        data: enhancedPuzzle,
+        timestamp: new Date(),
+      };
+    } catch (error) {
+      console.error('Error fetching puzzle:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a new puzzle using enhanced guaranteed generation
+   */
+  async generateEnhancedPuzzle(
+    difficulty: Difficulty,
+    options?: {
+      forceRegeneration?: boolean;
+      maxAttempts?: number;
+      targetComplexity?: number;
+    }
+  ): Promise<any> {
+    try {
+      const requestBody = {
+        difficulty,
+        forceRegeneration: options?.forceRegeneration || false,
+        maxAttempts: options?.maxAttempts || 10,
+        targetComplexity: options?.targetComplexity,
+      };
+
+      const response = await fetch('/api/puzzle/generate', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
@@ -40,8 +91,29 @@ class ApiService {
 
       return await response.json();
     } catch (error) {
-      console.error('Error fetching puzzle:', error);
-      throw error;
+      console.error('Enhanced puzzle generation failed:', error);
+
+      // Fallback to legacy endpoint if enhanced generation fails
+      console.log('Falling back to legacy puzzle generation...');
+
+      try {
+        const fallbackResponse = await fetch(`/api/puzzle/current?difficulty=${difficulty}`, {
+          method: 'GET',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (!fallbackResponse.ok) {
+          throw new Error(`Fallback HTTP error! status: ${fallbackResponse.status}`);
+        }
+
+        const result = await fallbackResponse.json();
+        return result.data || result;
+      } catch (fallbackError) {
+        console.error('Fallback puzzle generation also failed:', fallbackError);
+        throw error; // Throw original error
+      }
     }
   }
 

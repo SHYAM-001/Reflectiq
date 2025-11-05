@@ -8,6 +8,9 @@ export * from './puzzle.js';
 export * from './game.js';
 export * from './physics.js';
 
+// Enhanced puzzle generation types
+export * from './guaranteed-generation.js';
+
 // API communication types
 export * from './api.js';
 
@@ -25,6 +28,16 @@ export type {
   ScoreResult,
   ApiResponse,
 } from './puzzle.js';
+
+export type {
+  EnhancedPuzzleEngine,
+  EntryExitPair,
+  PathPlan,
+  ValidationResult,
+  PuzzleGenerationMetadata,
+  SpacingConstraints,
+  GuaranteedGenerationConfig,
+} from './guaranteed-generation.js';
 
 export type {
   GetPuzzleRequest,

@@ -258,15 +258,32 @@ class EnhancedApiService {
   }
 
   /**
-   * Get current puzzle by difficulty
+   * Get current puzzle by difficulty using enhanced generation
    */
   async getCurrentPuzzle(difficulty: Difficulty): Promise<GetPuzzleResponse> {
     try {
-      return await this.makeRequest<GetPuzzleResponse>(
+      // First try to get existing puzzle for today
+      const existingPuzzleResponse = await this.makeRequest<GetPuzzleResponse>(
         `/api/puzzle/current?difficulty=${difficulty}`,
         { method: 'GET' },
         'getCurrentPuzzle'
       );
+
+      // If puzzle exists and is valid, return it
+      if (existingPuzzleResponse.success && existingPuzzleResponse.data) {
+        return existingPuzzleResponse;
+      }
+
+      // If no puzzle exists or failed, generate using enhanced system
+      console.log(`No existing puzzle found for ${difficulty}, generating with enhanced system...`);
+
+      const enhancedPuzzle = await this.generateEnhancedPuzzle(difficulty);
+
+      return {
+        success: true,
+        data: enhancedPuzzle,
+        timestamp: new Date(),
+      };
     } catch (error) {
       console.error('Error fetching puzzle:', error);
 
@@ -277,6 +294,101 @@ class EnhancedApiService {
         });
       }
 
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a new puzzle using enhanced guaranteed generation
+   */
+  async generateEnhancedPuzzle(
+    difficulty: Difficulty,
+    options?: {
+      forceRegeneration?: boolean;
+      maxAttempts?: number;
+      targetComplexity?: number;
+    }
+  ): Promise<any> {
+    try {
+      const requestBody = {
+        difficulty,
+        forceRegeneration: options?.forceRegeneration || false,
+        maxAttempts: options?.maxAttempts || 10,
+        targetComplexity: options?.targetComplexity,
+      };
+
+      return await this.makeRequest(
+        '/api/puzzle/generate',
+        {
+          method: 'POST',
+          body: JSON.stringify(requestBody),
+        },
+        'generateEnhancedPuzzle'
+      );
+    } catch (error) {
+      console.error('Enhanced puzzle generation failed:', error);
+
+      // Fallback to legacy endpoint if enhanced generation fails
+      console.log('Falling back to legacy puzzle generation...');
+
+      try {
+        return await this.makeRequest(
+          `/api/puzzle/current?difficulty=${difficulty}`,
+          { method: 'GET' },
+          'fallbackGetCurrentPuzzle'
+        );
+      } catch (fallbackError) {
+        console.error('Fallback puzzle generation also failed:', fallbackError);
+        throw error; // Throw original error
+      }
+    }
+  }
+
+  /**
+   * Validate an existing puzzle
+   */
+  async validatePuzzle(puzzleId: string): Promise<any> {
+    try {
+      return await this.makeRequest(
+        `/api/puzzle/validate?puzzleId=${encodeURIComponent(puzzleId)}`,
+        { method: 'GET' },
+        'validatePuzzle'
+      );
+    } catch (error) {
+      console.error('Error validating puzzle:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Regenerate a puzzle with new parameters
+   */
+  async regeneratePuzzle(
+    puzzleId: string,
+    reason: string,
+    options?: {
+      difficulty?: Difficulty;
+      preserveSettings?: boolean;
+    }
+  ): Promise<any> {
+    try {
+      const requestBody = {
+        puzzleId,
+        reason,
+        difficulty: options?.difficulty,
+        preserveSettings: options?.preserveSettings || false,
+      };
+
+      return await this.makeRequest(
+        '/api/puzzle/regenerate',
+        {
+          method: 'POST',
+          body: JSON.stringify(requestBody),
+        },
+        'regeneratePuzzle'
+      );
+    } catch (error) {
+      console.error('Error regenerating puzzle:', error);
       throw error;
     }
   }

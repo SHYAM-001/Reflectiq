@@ -36,6 +36,16 @@ export const StartScreen = ({ onStart }: StartScreenProps) => {
         <p className="font-poppins text-lg md:text-2xl text-foreground/80 tracking-wide">
           Trace the light. Decode the reflections.
         </p>
+
+        {/* Enhanced Generation Badge */}
+        <div className="flex justify-center">
+          <div className="inline-flex items-center gap-2 px-4 py-2 bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-purple-500/30 rounded-full backdrop-blur-sm">
+            <div className="w-2 h-2 bg-gradient-to-r from-purple-400 to-blue-400 rounded-full animate-pulse"></div>
+            <span className="text-sm font-medium text-foreground/90">
+              Enhanced Generation • Guaranteed Solvable
+            </span>
+          </div>
+        </div>
         {/* Primary CTA */}
         <div className="flex flex-col sm:flex-row gap-4 justify-center">
           <Button

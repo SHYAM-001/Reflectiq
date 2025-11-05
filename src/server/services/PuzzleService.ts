@@ -8,6 +8,8 @@ import { redis } from '@devvit/web/server';
 import { Puzzle, DailyPuzzleSet, Difficulty } from '../../shared/types/puzzle.js';
 import { GetPuzzleResponse } from '../../shared/types/api.js';
 import { PuzzleGenerator } from '../../shared/puzzle/PuzzleGenerator.js';
+import { EnhancedPuzzleEngineImpl } from '../../shared/puzzle/EnhancedPuzzleEngine.js';
+import { FeatureFlagService } from './FeatureFlagService.js';
 import {
   withRedisRetry,
   withRedisCircuitBreaker,
@@ -18,13 +20,23 @@ import {
   errorMonitor,
 } from '../utils/errorHandler.js';
 import { createBackupPuzzle } from '../utils/backupPuzzles.js';
+import { cacheManager, initializeCacheManager } from './CacheManager.js';
 
 export class PuzzleService {
   private static instance: PuzzleService;
   private puzzleGenerator: PuzzleGenerator;
+  private enhancedEngine: EnhancedPuzzleEngineImpl;
+  private featureFlagService: FeatureFlagService;
 
   private constructor() {
     this.puzzleGenerator = PuzzleGenerator.getInstance();
+    this.enhancedEngine = EnhancedPuzzleEngineImpl.getInstance();
+    this.featureFlagService = FeatureFlagService.getInstance();
+
+    // Initialize cache manager for performance optimization
+    initializeCacheManager().catch((error) => {
+      console.warn('Failed to initialize cache manager:', error);
+    });
   }
 
   public static getInstance(): PuzzleService {
@@ -142,13 +154,60 @@ export class PuzzleService {
 
   /**
    * Generate and cache daily puzzles with enhanced error handling and fallbacks
+   * Integrates with enhanced generation system and feature flags
    */
   public async generateDailyPuzzles(date: string): Promise<DailyPuzzleSet> {
+    const startTime = Date.now();
+
+    // Check if enhanced generation should be used
+    const useEnhanced = await this.featureFlagService.shouldUseEnhancedGeneration(date);
+    const algorithm = useEnhanced ? 'enhanced' : 'legacy';
+
+    console.log(`Generating daily puzzles for ${date} using ${algorithm} algorithm`);
+
     return withPuzzleGenerationFallback(
       // Primary generation attempt
       async () => {
-        console.log(`Generating daily puzzles for ${date}`);
-        const puzzleSet = await this.puzzleGenerator.generateDailyPuzzles(date);
+        let puzzleSet: DailyPuzzleSet;
+
+        if (useEnhanced) {
+          // Use enhanced generation system
+          try {
+            puzzleSet = await this.generateWithEnhancedSystem(date);
+            console.log(`✓ Enhanced generation successful for ${date}`);
+            await this.featureFlagService.recordGenerationMetrics(
+              'enhanced',
+              Date.now() - startTime,
+              true
+            );
+          } catch (enhancedError) {
+            console.warn(
+              `Enhanced generation failed for ${date}, falling back to legacy:`,
+              enhancedError
+            );
+
+            // Check if fallback is enabled
+            const shouldFallback = await this.featureFlagService.shouldFallbackToLegacy();
+            if (shouldFallback) {
+              puzzleSet = await this.puzzleGenerator.generateDailyPuzzles(date);
+              await this.featureFlagService.recordGenerationMetrics(
+                'legacy',
+                Date.now() - startTime,
+                true
+              );
+            } else {
+              throw enhancedError;
+            }
+          }
+        } else {
+          // Use legacy generation system
+          puzzleSet = await this.puzzleGenerator.generateDailyPuzzles(date);
+          await this.featureFlagService.recordGenerationMetrics(
+            'legacy',
+            Date.now() - startTime,
+            true
+          );
+        }
 
         // Store in Redis cache with circuit breaker protection
         await withRedisCircuitBreaker(
@@ -194,10 +253,41 @@ export class PuzzleService {
           `Used backup puzzles for ${date}`,
           'generateDailyPuzzles'
         );
+
+        await this.featureFlagService.recordGenerationMetrics(
+          algorithm,
+          Date.now() - startTime,
+          false
+        );
         return backupPuzzleSet;
       },
       `Daily puzzle generation for ${date}`
     );
+  }
+
+  /**
+   * Generate puzzles using the enhanced guaranteed generation system
+   */
+  private async generateWithEnhancedSystem(date: string): Promise<DailyPuzzleSet> {
+    const difficulties: Difficulty[] = ['Easy', 'Medium', 'Hard'];
+    const puzzles: any = {};
+
+    for (const difficulty of difficulties) {
+      try {
+        const puzzle = await this.enhancedEngine.generateGuaranteedPuzzle(difficulty, date);
+        puzzles[difficulty.toLowerCase()] = puzzle;
+        console.log(`✓ Enhanced ${difficulty} puzzle generated: ${puzzle.id}`);
+      } catch (error) {
+        console.error(`Failed to generate enhanced ${difficulty} puzzle:`, error);
+        throw new Error(`Enhanced generation failed for ${difficulty} difficulty`);
+      }
+    }
+
+    return {
+      date,
+      puzzles,
+      status: 'active',
+    };
   }
 
   /**

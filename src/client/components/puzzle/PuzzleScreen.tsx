@@ -4,6 +4,7 @@ import { Timer } from './Timer';
 import { HintButton } from './HintButton';
 import { PuzzleGrid } from './PuzzleGrid';
 import { AnswerInput } from './AnswerInput';
+import { PuzzleGenerationInfo } from '../PuzzleGenerationInfo';
 import { Puzzle, SessionData, HintPath, GridPosition } from '../../types/api';
 import { Send } from 'lucide-react';
 import { toast } from 'sonner';
@@ -53,20 +54,21 @@ export const PuzzleScreen = ({
     <div className="min-h-screen flex flex-col  bg-gradient-bg overflow-hidden">
       {/* Top Bar */}
       <div className="flex justify-between items-center gap-2 p-4 md:p-6">
-        {/* <div className="flex items-center space-x-4">
-          <div className="text-sm text-foreground/60">
+        <div className="flex flex-col gap-2">
+          <div className="text-sm text-foreground/80">
             {puzzle.difficulty} • {puzzle.gridSize}x{puzzle.gridSize}
           </div>
-        </div> */}
-        {/* <div className="flex items-center"> */}
-        {puzzle.difficulty} • {puzzle.gridSize}x{puzzle.gridSize}
-        <Timer isRunning={isTimerRunning} onTimeUpdate={setCurrentTime} />
-        <HintButton
-          hintsRemaining={4 - hintsUsed}
-          onUseHint={onRequestHint}
-          isLoading={isRequestingHint}
-        />
-        {/* </div> */}
+          <PuzzleGenerationInfo puzzleId={puzzle.id} />
+        </div>
+
+        <div className="flex items-center gap-4">
+          <Timer isRunning={isTimerRunning} onTimeUpdate={setCurrentTime} />
+          <HintButton
+            hintsRemaining={4 - hintsUsed}
+            onUseHint={onRequestHint}
+            isLoading={isRequestingHint}
+          />
+        </div>
       </div>
 
       {/* Main Grid Area */}

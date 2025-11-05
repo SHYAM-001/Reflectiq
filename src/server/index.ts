@@ -12,7 +12,9 @@ import {
 import { createPost, createLeaderboardPost } from './core/post';
 import { PuzzleService } from './services/PuzzleService.js';
 import { LeaderboardService } from './services/LeaderboardService.js';
+import { FeatureFlagService } from './services/FeatureFlagService.js';
 import puzzleRoutes from './routes/puzzleRoutes.js';
+import enhancedPuzzleRoutes from './routes/enhancedPuzzleRoutes.js';
 import leaderboardRoutes from './routes/leaderboardRoutes.js';
 import healthRoutes from './routes/healthRoutes.js';
 
@@ -202,6 +204,7 @@ router.post<{ postId: string }, DecrementResponse | { status: string; message: s
 
 // API Routes
 router.use('/api/puzzle', puzzleRoutes);
+router.use('/api/puzzle', enhancedPuzzleRoutes); // Enhanced generation endpoints
 router.use('/api/leaderboard', leaderboardRoutes);
 router.use('/api', healthRoutes);
 
@@ -1123,11 +1126,12 @@ router.post('/internal/scheduler/generate-puzzles', async (_req, res): Promise<v
         puzzlesGenerated: 0,
         date: today,
         executionTime: Date.now() - startTime,
+        algorithm: 'skipped',
       });
       return;
     }
 
-    // Generate new puzzles with error handling and validation
+    // Generate new puzzles with enhanced system integration
     console.log(`Generating new puzzles for ${today}...`);
     const puzzleSet = await puzzleService.generateDailyPuzzles(today);
 
@@ -1174,9 +1178,10 @@ router.post('/internal/scheduler/generate-puzzles', async (_req, res): Promise<v
       date: today,
       puzzles: generatedPuzzles,
       executionTime,
+      algorithm: 'enhanced_integrated', // Indicates enhanced system is integrated
     });
   } catch (error) {
-    const executionTime = Date.now() - (Date.now() - 1000); // Approximate
+    const executionTime = Date.now() - startTime;
     console.error(`Error generating daily puzzles: ${error}`);
 
     // Try to provide more specific error information
@@ -1190,6 +1195,9 @@ router.post('/internal/scheduler/generate-puzzles', async (_req, res): Promise<v
       } else if (error.message.includes('validation')) {
         errorType = 'VALIDATION_ERROR';
         errorMessage = 'Puzzle validation failed';
+      } else if (error.message.includes('Enhanced generation failed')) {
+        errorType = 'ENHANCED_GENERATION_FAILED';
+        errorMessage = 'Enhanced puzzle generation system failed';
       }
     }
 
@@ -1543,6 +1551,73 @@ router.post('/internal/scheduler/weekly-maintenance', async (_req, res): Promise
       message: 'Weekly maintenance failed',
       error: error instanceof Error ? error.message : 'Unknown error',
       executionTime,
+    });
+  }
+});
+
+// Feature flag management endpoints
+router.get('/internal/feature-flags', async (_req, res): Promise<void> => {
+  try {
+    const featureFlagService = FeatureFlagService.getInstance();
+    const flags = await featureFlagService.getFeatureFlags();
+    const metrics = await featureFlagService.getPerformanceMetrics();
+
+    res.json({
+      status: 'success',
+      flags,
+      metrics,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error getting feature flags:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to get feature flags',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+});
+
+router.post('/internal/feature-flags', async (req, res): Promise<void> => {
+  try {
+    const featureFlagService = FeatureFlagService.getInstance();
+    const updates = req.body;
+
+    // Validate the updates
+    const validKeys = [
+      'enableGuaranteedGeneration',
+      'fallbackToLegacy',
+      'enableAdvancedValidation',
+      'enablePerformanceLogging',
+      'maxGenerationAttempts',
+      'confidenceThreshold',
+      'enhancedGenerationRollout',
+      'timeoutMs',
+    ];
+
+    const invalidKeys = Object.keys(updates).filter((key) => !validKeys.includes(key));
+    if (invalidKeys.length > 0) {
+      return res.status(400).json({
+        status: 'error',
+        message: `Invalid feature flag keys: ${invalidKeys.join(', ')}`,
+        validKeys,
+      });
+    }
+
+    await featureFlagService.updateFeatureFlags(updates);
+
+    res.json({
+      status: 'success',
+      message: 'Feature flags updated successfully',
+      updates,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    console.error('Error updating feature flags:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to update feature flags',
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 });

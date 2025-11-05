@@ -4,9 +4,11 @@ import { TooltipProvider } from './components/ui/tooltip';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { ConnectionStatus } from './components/ConnectionStatus';
+import EnhancedGenerationStatus from './components/EnhancedGenerationStatus';
 import Index from './pages/Index';
 import InteractiveLeaderboard from './components/InteractiveLeaderboard';
 import { useEffect, useState } from 'react';
+import { runComprehensiveTest, logTestResults } from './utils/enhanced-generation-test';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -35,6 +37,7 @@ const queryClient = new QueryClient({
 const App = () => {
   const [postData, setPostData] = useState<unknown>(null);
   const [loading, setLoading] = useState(true);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
 
   useEffect(() => {
     // Check if we have post data (for custom posts)
@@ -55,7 +58,25 @@ const App = () => {
     };
 
     checkPostData();
-  }, []);
+
+    // Add keyboard shortcut for debug panel (Ctrl+Shift+D)
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.shiftKey && event.key === 'D') {
+        event.preventDefault();
+        setShowDebugPanel(!showDebugPanel);
+      }
+
+      // Add keyboard shortcut for running tests (Ctrl+Shift+T)
+      if (event.ctrlKey && event.shiftKey && event.key === 'T') {
+        event.preventDefault();
+        console.log('🧪 Running enhanced generation tests...');
+        runComprehensiveTest().then(logTestResults);
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showDebugPanel]);
 
   if (loading) {
     return (
@@ -76,6 +97,13 @@ const App = () => {
               <div className="fixed top-4 right-4 z-50">
                 <ConnectionStatus />
               </div>
+
+              {/* Debug panel */}
+              {showDebugPanel && (
+                <div className="fixed top-4 left-4 z-50 max-w-md">
+                  <EnhancedGenerationStatus />
+                </div>
+              )}
 
               {/* Toast notifications */}
               <Toaster />
@@ -100,6 +128,13 @@ const App = () => {
             <div className="fixed top-4 right-4 z-50">
               <ConnectionStatus />
             </div>
+
+            {/* Debug panel */}
+            {showDebugPanel && (
+              <div className="fixed top-4 left-4 z-50 max-w-md">
+                <EnhancedGenerationStatus />
+              </div>
+            )}
 
             {/* Toast notifications */}
             <Toaster />
