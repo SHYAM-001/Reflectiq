@@ -424,6 +424,339 @@ const memoizedRankings = useMemo(() => {
 - Use dynamic imports for large dependencies
 - Optimize image assets used in splash screens
 
+### 6. First-Attempt-Only Scoring System
+
+**File**: `src/server/index.ts` (enhancement to `/api/puzzle/submit` endpoint)
+
+```typescript
+// Enhanced submission endpoint with first-attempt-only logic
+router.post('/api/puzzle/submit', async (req, res) => {
+  try {
+    const { sessionId, answer, timeTaken } = req.body;
+
+    // Get session and validate
+    const session = await sessionService.getSession(sessionId);
+    if (!session) {
+      throw new ValidationError('Invalid session');
+    }
+
+    // Check if user has already completed this puzzle correctly
+    // Only first correct attempt should count for leaderboard
+    const hasAlreadyCompleted = await submissionService.hasUserCompleted(
+      session.puzzleId,
+      session.userId
+    );
+    if (hasAlreadyCompleted) {
+      // User has already completed this puzzle, don't update leaderboard
+      const existingSubmission = await submissionService.getUserSubmission(
+        session.puzzleId,
+        session.userId
+      );
+      if (existingSubmission) {
+        return res.json(
+          createSuccessResponse({
+            scoreResult: {
+              correct: true,
+              finalScore: 0, // No score for repeat attempts
+              baseScore: 0,
+              hintMultiplier: 1,
+              timeMultiplier: 1,
+              hintsUsed: existingSubmission.hintsUsed,
+              timeTaken: existingSubmission.timeTaken,
+              maxPossibleScore: 0,
+            },
+            submission: existingSubmission,
+            leaderboardPosition: null,
+            message: 'Puzzle already completed. Only first correct attempt counts for leaderboard.',
+          })
+        );
+      }
+    }
+
+    // Continue with normal submission flow for first attempts
+    // ... existing submission logic
+  } catch (error) {
+    // ... existing error handling
+  }
+});
+```
+
+### 7. Difficulty-Filtered Leaderboard System
+
+**File**: `src/server/services/LeaderboardService.ts` (enhancement)
+
+```typescript
+export class LeaderboardService {
+  // ... existing methods
+
+  /**
+   * Get daily leaderboard filtered by difficulty
+   * Requirements: 7.2, 7.3, 7.4, 7.5
+   */
+  async getDailyLeaderboardByDifficulty(
+    difficulty: Difficulty,
+    date?: string,
+    limit: number = 10,
+    offset: number = 0
+  ): Promise<LeaderboardEntry[]> {
+    try {
+      const targetDate = date || new Date().toISOString().split('T')[0];
+      const allEntries = await this.repository.getLeaderboard(`daily:${targetDate}`, 100, 0);
+
+      // Filter by difficulty and sort by score (descending)
+      const filteredEntries = allEntries
+        .filter((entry) => entry.difficulty === difficulty)
+        .sort((a, b) => b.score - a.score)
+        .slice(offset, offset + limit);
+
+      return filteredEntries;
+    } catch (error) {
+      console.error('Failed to get daily leaderboard by difficulty:', error);
+      return [];
+    }
+  }
+}
+```
+
+**File**: `src/server/index.ts` (enhancement to leaderboard API)
+
+```typescript
+// Enhanced daily leaderboard endpoint with difficulty filtering
+router.get('/api/leaderboard/daily', async (req, res) => {
+  try {
+    const { date, limit = '10', offset = '0', difficulty } = req.query;
+
+    let leaderboard;
+    if (difficulty && ['easy', 'medium', 'hard'].includes(difficulty as string)) {
+      // Get difficulty-specific leaderboard
+      leaderboard = await leaderboardService.getDailyLeaderboardByDifficulty(
+        difficulty as Difficulty,
+        date as string,
+        parseInt(limit as string),
+        parseInt(offset as string)
+      );
+    } else {
+      // Get combined leaderboard
+      leaderboard = await leaderboardService.getDailyLeaderboard(
+        date as string,
+        parseInt(limit as string),
+        parseInt(offset as string)
+      );
+    }
+
+    res.json(createSuccessResponse(leaderboard));
+  } catch (error) {
+    console.error('Get daily leaderboard error:', error);
+    const apiError = error as ApiError;
+    res.status(apiError.statusCode || 500).json(createErrorResponse(apiError));
+  }
+});
+```
+
+### 8. Enhanced Leaderboard Component with Difficulty Filtering
+
+**File**: `src/client/components/Leaderboard.tsx` (enhancement)
+
+```typescript
+import { Filter } from 'lucide-react';
+import { Difficulty } from '../types/api';
+
+export default function Leaderboard() {
+  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selectedDifficulty, setSelectedDifficulty] = useState<Difficulty | 'all'>('easy'); // Default to easy
+
+  const fetchLeaderboard = async () => {
+    try {
+      setLoading(true);
+      setError(null);
+
+      // Fetch leaderboard with difficulty filter
+      const response = selectedDifficulty === 'all'
+        ? await apiService.getDailyLeaderboard()
+        : await apiService.getDailyLeaderboard(undefined, 10, selectedDifficulty);
+
+      if (response.success && response.data) {
+        setLeaderboard(response.data);
+      } else {
+        throw new Error('Failed to fetch leaderboard');
+      }
+    } catch (err) {
+      console.error('Error fetching leaderboard:', err);
+      setError('Failed to load leaderboard. Please try again.');
+      toast.error('Failed to load leaderboard');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchLeaderboard();
+  }, [selectedDifficulty]); // Refetch when difficulty changes
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900">
+      {/* Header */}
+      <div className="text-center mb-8">
+        <div className="flex items-center justify-center gap-3 mb-4">
+          <Trophy className="h-8 w-8 text-yellow-500" />
+          <h1 className="text-4xl font-orbitron font-bold bg-gradient-to-r from-yellow-400 via-yellow-500 to-orange-500 bg-clip-text text-transparent">
+            Daily Leaderboard
+          </h1>
+          <Trophy className="h-8 w-8 text-yellow-500" />
+        </div>
+        <p className="text-foreground/70 text-lg">
+          {selectedDifficulty === 'all'
+            ? "Top players who've mastered today's laser puzzles"
+            : `Top ${selectedDifficulty} difficulty players from today's challenges`
+          }
+        </p>
+      </div>
+
+      {/* Difficulty Filter */}
+      <div className="flex items-center justify-center gap-2 mb-6">
+        <Filter className="h-4 w-4 text-foreground/60" />
+        <span className="text-sm text-foreground/60 mr-3">Filter by difficulty:</span>
+        <div className="flex gap-2">
+          {(['easy', 'medium', 'hard', 'all'] as const).map((difficulty) => (
+            <button
+              key={difficulty}
+              onClick={() => setSelectedDifficulty(difficulty)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all duration-200 ${
+                selectedDifficulty === difficulty
+                  ? difficulty === 'easy'
+                    ? 'bg-green-500/20 text-green-400 border border-green-500/30'
+                    : difficulty === 'medium'
+                    ? 'bg-yellow-500/20 text-yellow-400 border border-yellow-500/30'
+                    : difficulty === 'hard'
+                    ? 'bg-red-500/20 text-red-400 border border-red-500/30'
+                    : 'bg-primary/20 text-primary border border-primary/30'
+                  : 'bg-card/50 text-foreground/70 border border-border/50 hover:bg-card/80 hover:text-foreground/90'
+              }`}
+            >
+              {difficulty === 'easy' && '🟢'}
+              {difficulty === 'medium' && '🟡'}
+              {difficulty === 'hard' && '🔴'}
+              {difficulty === 'all' && '🎯'}
+              <span className="ml-1">
+                {difficulty.charAt(0).toUpperCase() + difficulty.slice(1)}
+              </span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Dynamic Statistics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+        <div className="bg-card/30 backdrop-blur-sm rounded-xl p-4 border border-border/30">
+          <div className="flex items-center gap-3">
+            <Clock className="h-5 w-5 text-blue-400" />
+            <div>
+              <p className="text-sm text-foreground/60">Fastest Time</p>
+              <p className="text-xl font-orbitron font-bold text-blue-400">
+                {leaderboard.length > 0
+                  ? `${Math.floor(Math.min(...leaderboard.map(e => e.timeTaken)) / 60)}:${(Math.min(...leaderboard.map(e => e.timeTaken)) % 60).toString().padStart(2, '0')}`
+                  : '00:00'
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card/30 backdrop-blur-sm rounded-xl p-4 border border-border/30">
+          <div className="flex items-center gap-3">
+            <TrendingUp className="h-5 w-5 text-green-400" />
+            <div>
+              <p className="text-sm text-foreground/60">Top Score</p>
+              <p className="text-xl font-orbitron font-bold text-green-400">
+                {leaderboard.length > 0
+                  ? Math.max(...leaderboard.map(e => e.score)).toLocaleString()
+                  : '0'
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card/30 backdrop-blur-sm rounded-xl p-4 border border-border/30">
+          <div className="flex items-center gap-3">
+            <Users className="h-5 w-5 text-purple-400" />
+            <div>
+              <p className="text-sm text-foreground/60">
+                {selectedDifficulty === 'all' ? 'Total Players' : `${selectedDifficulty.charAt(0).toUpperCase() + selectedDifficulty.slice(1)} Players`}
+              </p>
+              <p className="text-xl font-orbitron font-bold text-purple-400">
+                {leaderboard.length.toLocaleString()}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="bg-card/30 backdrop-blur-sm rounded-xl p-4 border border-border/30">
+          <div className="flex items-center gap-3">
+            <Star className="h-5 w-5 text-yellow-400" />
+            <div>
+              <p className="text-sm text-foreground/60">Avg. Completion</p>
+              <p className="text-xl font-orbitron font-bold text-yellow-400">
+                {leaderboard.length > 0
+                  ? (() => {
+                      const avgTime = leaderboard.reduce((sum, e) => sum + e.timeTaken, 0) / leaderboard.length;
+                      return `${Math.floor(avgTime / 60)}:${(Math.floor(avgTime) % 60).toString().padStart(2, '0')}`;
+                    })()
+                  : '00:00'
+                }
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Rest of existing leaderboard rendering logic */}
+      {/* ... existing leaderboard table/cards */}
+    </div>
+  );
+}
+```
+
+### 9. Enhanced API Service with Difficulty Support
+
+**File**: `src/client/services/api.ts` (enhancement)
+
+```typescript
+export class ApiService {
+  // ... existing methods
+
+  /**
+   * Get daily leaderboard with optional difficulty filtering
+   */
+  async getDailyLeaderboard(date?: string, limit: number = 10, difficulty?: Difficulty) {
+    try {
+      const params = new URLSearchParams();
+      if (date) params.append('date', date);
+      if (difficulty) params.append('difficulty', difficulty);
+      params.append('limit', limit.toString());
+
+      const response = await fetch(`/api/leaderboard/daily?${params}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Failed to get daily leaderboard:', error);
+      throw error;
+    }
+  }
+}
+```
+
 ## Security Considerations
 
 ### 1. Data Validation
@@ -444,6 +777,12 @@ const validateLeaderboardData = (data: any): data is LeaderboardPostData => {
     )
   );
 };
+
+// Validate submission attempts to prevent manipulation
+const validateSubmissionAttempt = async (userId: string, puzzleId: string): Promise<boolean> => {
+  const existingSubmission = await submissionService.getUserSubmission(puzzleId, userId);
+  return !existingSubmission || !existingSubmission.isCorrect;
+};
 ```
 
 ### 2. User Data Protection
@@ -451,9 +790,11 @@ const validateLeaderboardData = (data: any): data is LeaderboardPostData => {
 - Only display Reddit usernames (no additional PII)
 - Sanitize user input in leaderboard entries
 - Implement rate limiting on menu actions
+- Prevent score manipulation through repeat submissions
 
 ### 3. Access Control
 
 - Ensure menu actions are restricted to moderators
 - Validate subreddit context before creating posts
 - Implement proper error messages without exposing internal details
+- Validate difficulty filter parameters to prevent injection attacks

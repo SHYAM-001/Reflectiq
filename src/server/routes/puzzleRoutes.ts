@@ -286,6 +286,49 @@ router.post(
       return sendErrorResponse(res, 'SESSION_EXPIRED', 'Session is no longer active');
     }
 
+    // Check if user has already completed this puzzle correctly (first-attempt-only policy)
+    // Requirements: 6.1, 6.2, 6.3, 6.4, 6.5
+    const leaderboardService = LeaderboardService.getInstance();
+    const hasAlreadyCompleted = await leaderboardService.hasUserCompleted(
+      sessionData.puzzleId,
+      sessionData.userId
+    );
+
+    if (hasAlreadyCompleted) {
+      // User has already completed this puzzle, return existing submission data
+      const existingSubmission = await leaderboardService.getUserSubmission(
+        sessionData.puzzleId,
+        sessionData.userId
+      );
+
+      if (existingSubmission) {
+        const responseData = {
+          scoreResult: {
+            baseScore: 0,
+            hintMultiplier: 1,
+            timeMultiplier: 1,
+            finalScore: 0, // No score for repeat attempts
+            correct: true,
+            timeTaken: existingSubmission.timeTaken,
+            hintsUsed: existingSubmission.hintsUsed,
+            maxPossibleScore: 0,
+          },
+          submission: existingSubmission,
+          leaderboardPosition: undefined, // No leaderboard update for repeat attempts
+          message: 'Puzzle already completed. Only first correct attempt counts for leaderboard.',
+          isRepeatAttempt: true,
+          originalCompletion: {
+            timeTaken: existingSubmission.timeTaken,
+            score: existingSubmission.score,
+            hintsUsed: existingSubmission.hintsUsed,
+            completedAt: existingSubmission.timestamp,
+          },
+        };
+
+        return sendSuccessResponse(res, responseData);
+      }
+    }
+
     // Get puzzle data
     const puzzleService = PuzzleService.getInstance();
     const puzzleResponse = await puzzleService.getCurrentPuzzle(sessionData.difficulty);
@@ -382,54 +425,45 @@ router.post(
       console.warn('Failed to store submission:', error);
     }
 
-    // Update leaderboard if score > 0 using atomic operations
+    // Always attempt leaderboard update using atomic operations (handles first-attempt-only logic)
     let leaderboardPosition: number | undefined;
-    if (finalScore > 0) {
-      try {
-        const leaderboardService = LeaderboardService.getInstance();
+    let leaderboardUpdateMessage: string | undefined;
 
-        // Use atomic score update for consistency
-        const updateResult = await leaderboardService.atomicScoreUpdate(
-          sessionData.puzzleId,
-          sessionData.userId,
-          finalScore,
-          submission
-        );
+    try {
+      const leaderboardService = LeaderboardService.getInstance();
 
-        if (updateResult.success) {
-          // Get leaderboard position
-          try {
-            const position = await leaderboardService.getUserPuzzleRank(
-              sessionData.puzzleId,
-              sessionData.userId
-            );
-            leaderboardPosition = position || undefined;
-          } catch (rankError) {
-            console.warn('Failed to get leaderboard position:', rankError);
-            leaderboardPosition = 1; // Fallback
-          }
-        } else {
-          console.warn('Atomic score update failed:', updateResult.error);
-          // Fallback to direct Redis operations for backward compatibility
-          await redisClient.zAdd(
-            `leaderboard:${sessionData.puzzleId}`,
-            sessionData.userId,
-            finalScore
+      // Use atomic score update for consistency (handles first attempt only logic)
+      const updateResult = await leaderboardService.atomicScoreUpdate(
+        sessionData.puzzleId,
+        sessionData.userId,
+        finalScore,
+        submission
+      );
+
+      if (updateResult.success) {
+        // Get leaderboard position for successful updates
+        try {
+          const position = await leaderboardService.getUserPuzzleRank(
+            sessionData.puzzleId,
+            sessionData.userId
           );
-          await redisClient.expire(`leaderboard:${sessionData.puzzleId}`, 604800);
-
-          const today = new Date().toISOString().split('T')[0];
-          await redisClient.zAdd(
-            `leaderboard:daily:${today}`,
-            `${sessionData.userId}:${sessionData.difficulty}`,
-            finalScore
-          );
-          await redisClient.expire(`leaderboard:daily:${today}`, 604800);
-          leaderboardPosition = 1;
+          leaderboardPosition = position || undefined;
+          leaderboardUpdateMessage = 'Leaderboard updated successfully';
+        } catch (rankError) {
+          console.warn('Failed to get leaderboard position:', rankError);
+          leaderboardPosition = 1; // Fallback
         }
-      } catch (error) {
-        console.warn('Failed to update leaderboard:', error);
+      } else {
+        // Log the reason why leaderboard wasn't updated (first attempt only, incorrect answer, etc.)
+        console.log(`Leaderboard not updated for ${sessionData.userId}: ${updateResult.error}`);
+        leaderboardUpdateMessage = updateResult.error;
+
+        // For incorrect answers or repeat attempts, don't show leaderboard position
+        leaderboardPosition = undefined;
       }
+    } catch (error) {
+      console.warn('Failed to update leaderboard:', error);
+      leaderboardUpdateMessage = 'Leaderboard update failed due to technical error';
     }
 
     // Mark session as submitted
@@ -503,12 +537,16 @@ router.post(
       leaderboardPosition
     );
 
-    // Include comment posting status in response for client-side feedback
+    // Include comment posting status and leaderboard update info in response for client-side feedback
     const responseData = {
       scoreResult,
       submission,
       leaderboardPosition,
       commentPosting: commentPostingResult,
+      leaderboardUpdate: {
+        success: leaderboardPosition !== undefined,
+        message: leaderboardUpdateMessage,
+      },
     };
 
     sendSuccessResponse(res, responseData);

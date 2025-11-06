@@ -75,3 +75,27 @@ This feature enhances the existing ReflectIQ puzzle game by integrating the lead
 3. WHEN the scheduled leaderboard post renders, THE Leaderboard_Component SHALL display the same animations, styling, and layout as manual posts
 4. WHEN the automated post includes leaderboard data, THE Custom_Post SHALL show proper difficulty badges and ranking icons
 5. WHEN the existing scheduler creates the post, THE Custom_Post SHALL maintain all existing logging and error handling functionality
+
+### Requirement 6
+
+**User Story:** As a competitive player, I want only my first correct attempt to count for leaderboard scoring, so that the rankings reflect genuine first-try performance and prevent score manipulation
+
+#### Acceptance Criteria
+
+1. WHEN a player submits a correct answer for a puzzle they have already completed, THE LeaderboardService SHALL not update their leaderboard position or score
+2. WHEN a player attempts a puzzle they have already solved correctly, THE Submission_System SHALL return their original completion data without adding new leaderboard entries
+3. WHEN checking for existing completions, THE Submission_System SHALL use the existing hasUserCompleted method from SubmissionService
+4. WHEN a repeat attempt is detected, THE Submission_System SHALL display a message indicating "Puzzle already completed. Only first correct attempt counts for leaderboard."
+5. WHEN a player views their submission result for a repeat attempt, THE Submission_System SHALL show their original completion time, score, and hints used
+
+### Requirement 7
+
+**User Story:** As a puzzle player, I want to filter the leaderboard by difficulty level, so that I can compare my performance against players who solved puzzles of the same difficulty
+
+#### Acceptance Criteria
+
+1. WHEN the leaderboard loads, THE Leaderboard_Component SHALL display difficulty filter buttons for Easy, Medium, Hard, and All difficulties
+2. WHEN the leaderboard initializes, THE Leaderboard_Component SHALL default to showing Easy difficulty rankings
+3. WHEN a player clicks a difficulty filter, THE Leaderboard_Component SHALL fetch and display only entries for that specific difficulty level
+4. WHEN filtering by difficulty, THE LeaderboardService SHALL provide a getDailyLeaderboardByDifficulty method that filters entries by the specified difficulty
+5. WHEN the difficulty filter is active, THE Leaderboard_Component SHALL update the statistics cards to show difficulty-specific metrics (player count, fastest time, top score)

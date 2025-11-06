@@ -152,6 +152,103 @@ export class LeaderboardService {
   }
 
   /**
+   * Get daily leaderboard filtered by difficulty
+   * Requirements: 7.2, 7.4, 7.5
+   */
+  public async getDailyLeaderboardByDifficulty(
+    difficulty: Difficulty,
+    date?: string,
+    limit: number = 10,
+    offset: number = 0
+  ): Promise<{
+    entries: LeaderboardEntry[];
+    totalPlayers: number;
+  }> {
+    try {
+      const targetDate = date || new Date().toISOString().split('T')[0];
+      const dailyLeaderboardKey = `reflectiq:leaderboard:daily:${targetDate}`;
+
+      // Get all entries from daily leaderboard
+      const allScores = await redis.zRange(dailyLeaderboardKey, 0, -1, {
+        by: 'rank',
+        reverse: true,
+        withScores: true,
+      });
+
+      // Filter by difficulty and build entries
+      const filteredEntries: LeaderboardEntry[] = [];
+      let rank = 1;
+
+      for (const scoreData of allScores) {
+        if (
+          scoreData &&
+          typeof scoreData === 'object' &&
+          'member' in scoreData &&
+          'score' in scoreData
+        ) {
+          const memberData = scoreData.member;
+          const score = scoreData.score;
+
+          // Parse member data (format: "username:difficulty")
+          const [username, entryDifficulty] = memberData.split(':');
+
+          if (
+            username &&
+            entryDifficulty &&
+            entryDifficulty.toLowerCase() === difficulty.toLowerCase()
+          ) {
+            // Get submission details for timing info
+            let timeTaken = 0;
+            let hintsUsed = 0;
+            let timestamp = new Date();
+
+            try {
+              const puzzleId = `puzzle_${difficulty.toLowerCase()}_${targetDate}`;
+              const submissionKey = `reflectiq:submissions:${puzzleId}`;
+              const submissionData = await redis.hGet(submissionKey, username);
+
+              if (submissionData) {
+                const submission: Submission = JSON.parse(submissionData);
+                timeTaken = submission.timeTaken;
+                hintsUsed = submission.hintsUsed;
+                timestamp = submission.timestamp;
+              }
+            } catch (error) {
+              console.warn(`Failed to get submission details for ${username}:`, error);
+            }
+
+            filteredEntries.push({
+              rank,
+              username,
+              difficulty: difficulty,
+              time: timeTaken,
+              hints: hintsUsed,
+              score,
+              timestamp,
+            });
+
+            rank++;
+          }
+        }
+      }
+
+      // Apply pagination
+      const paginatedEntries = filteredEntries.slice(offset, offset + limit);
+
+      return {
+        entries: paginatedEntries,
+        totalPlayers: filteredEntries.length,
+      };
+    } catch (error) {
+      console.error('Failed to get daily leaderboard by difficulty:', error);
+      return {
+        entries: [],
+        totalPlayers: 0,
+      };
+    }
+  }
+
+  /**
    * Get daily combined leaderboard with pagination
    * Requirements: 7.2, 7.3, 7.4, 7.5
    */
@@ -338,6 +435,47 @@ export class LeaderboardService {
   }
 
   /**
+   * Check if user has completed a puzzle correctly (first-attempt-only policy)
+   * Requirements: 6.1, 6.2, 6.3
+   */
+  public async hasUserCompleted(puzzleId: string, userId: string): Promise<boolean> {
+    try {
+      const submissionKey = `reflectiq:submissions:${puzzleId}`;
+      const submissionData = await redis.hGet(submissionKey, userId);
+
+      if (!submissionData) {
+        return false;
+      }
+
+      const submission: Submission = JSON.parse(submissionData);
+      return submission.correct;
+    } catch (error) {
+      console.error('Error checking user completion status:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Get user's submission data for a specific puzzle
+   * Requirements: 6.1, 6.2, 6.4, 6.5
+   */
+  public async getUserSubmission(puzzleId: string, userId: string): Promise<Submission | null> {
+    try {
+      const submissionKey = `reflectiq:submissions:${puzzleId}`;
+      const submissionData = await redis.hGet(submissionKey, userId);
+
+      if (!submissionData) {
+        return null;
+      }
+
+      return JSON.parse(submissionData);
+    } catch (error) {
+      console.error('Error getting user submission:', error);
+      return null;
+    }
+  }
+
+  /**
    * Get leaderboard statistics for monitoring
    * Requirements: 9.3, 9.5
    */
@@ -398,16 +536,55 @@ export class LeaderboardService {
       const dailyLeaderboardKey = `reflectiq:leaderboard:daily:${submission.timestamp.toISOString().split('T')[0]}`;
       const submissionKey = `reflectiq:submissions:${puzzleId}`;
 
-      // Get previous score for comparison
-      const previousScore = await redis.zScore(puzzleLeaderboardKey, userId);
+      // Check if user has already submitted for this puzzle (first attempt only policy)
+      const existingSubmission = await redis.hGet(submissionKey, userId);
 
-      // Check if user has already submitted for this puzzle today
-      if (previousScore !== null) {
+      if (existingSubmission) {
+        try {
+          const previousSubmission: Submission = JSON.parse(existingSubmission);
+
+          // If previous submission was correct, don't allow new submissions
+          if (previousSubmission.correct) {
+            return {
+              success: false,
+              previousScore: previousSubmission.score,
+              error:
+                'User has already completed this puzzle successfully. Only the first correct attempt counts for leaderboard.',
+            };
+          }
+
+          // If previous submission was incorrect and this one is also incorrect, don't update leaderboard
+          if (!submission.correct) {
+            // Still store the submission for analytics but don't update leaderboard
+            await redis.hSet(submissionKey, userId, JSON.stringify(submission));
+            return {
+              success: false,
+              previousScore: 0,
+              error:
+                'Incorrect answer. Previous incorrect attempts exist. Only first correct attempt will count for leaderboard.',
+            };
+          }
+
+          // If previous was incorrect and this is correct, proceed with leaderboard update
+          console.log(
+            `User ${userId} had previous incorrect attempt, now submitting correct answer for ${puzzleId}`
+          );
+        } catch (parseError) {
+          console.warn(`Failed to parse existing submission for ${userId}:`, parseError);
+          // Continue with update if we can't parse the existing submission
+        }
+      }
+
+      // Only update leaderboard for correct answers
+      if (!submission.correct) {
+        // Store the submission for analytics but don't update leaderboard
+        await redis.hSet(submissionKey, userId, JSON.stringify(submission));
+        await redis.expire(submissionKey, 604800); // 7 days
+
         return {
           success: false,
-          previousScore,
-          error:
-            'User has already completed this puzzle today. Only one attempt per puzzle per day is allowed.',
+          previousScore: 0,
+          error: 'Incorrect answer. Only correct answers are added to the leaderboard.',
         };
       }
 

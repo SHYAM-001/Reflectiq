@@ -71,17 +71,60 @@
     - Ensure fallback to sample data maintains visual consistency
     - _Requirements: 2.5, 4.5_
 
-- [ ]\* 6. Add comprehensive testing
+- [x] 6. Implement first-attempt-only scoring system
 
-  - [ ]\* 6.1 Create component tests for enhanced functionality
+  - [x] 6.1 Update submission endpoint to check for existing completions
+
+    - Modify `/api/puzzle/submit` endpoint to check `hasUserCompleted` before processing
+    - Return existing submission data for repeat attempts without updating leaderboard
+    - Add clear messaging about first-attempt-only policy
+    - _Requirements: 6.1, 6.2, 6.3, 6.4, 6.5_
+
+  - [x] 6.2 Enhance submission response handling for repeat attempts
+
+    - Update client-side submission handling to display appropriate messages for repeat attempts
+    - Show original completion statistics when user attempts already-solved puzzle
+    - Ensure UI clearly indicates no leaderboard update for repeat attempts
+    - _Requirements: 6.2, 6.4, 6.5_
+
+- [x] 7. Add difficulty filtering to leaderboard component
+
+  - [x] 7.1 Implement difficulty filter UI in Leaderboard component
+
+    - Add difficulty filter buttons (Easy, Medium, Hard, All) with proper styling
+    - Set Easy as default selected difficulty
+    - Add visual indicators (green, yellow, red, blue) for each difficulty level
+    - _Requirements: 7.1, 7.2, 7.3_
+
+  - [x] 7.2 Add difficulty-specific leaderboard API support
+
+    - Create `getDailyLeaderboardByDifficulty` method in LeaderboardService
+    - Update `/api/leaderboard/daily` endpoint to accept difficulty parameter
+    - Enhance API service methods to support difficulty filtering
+    - _Requirements: 7.4, 7.5_
+
+  - [x] 7.3 Update statistics cards for difficulty-specific metrics
+
+    - Modify statistics calculations to reflect filtered difficulty data
+    - Update player count, fastest time, and top score based on selected difficulty
+    - Ensure statistics are accurate for both filtered and combined views
+    - _Requirements: 7.5_
+
+- [ ]\* 8. Add comprehensive testing
+
+  - [ ]\* 8.1 Create component tests for enhanced functionality
 
     - Test Leaderboard component with postData, API data, and sample data
     - Test DifficultyBadge component with all difficulty levels and sizes
+    - Test difficulty filtering functionality and state management
+    - Test first-attempt-only submission logic
     - Test error handling and fallback scenarios
-    - _Requirements: 2.1, 2.2, 3.1, 3.2, 3.3_
+    - _Requirements: 2.1, 2.2, 3.1, 3.2, 3.3, 6.1, 7.1_
 
-  - [ ]\* 6.2 Create integration tests for menu actions
+  - [ ]\* 8.2 Create integration tests for menu actions and new features
     - Test daily and weekly leaderboard creation through menu actions
     - Test postData flow from server to client components
     - Test automated scheduler integration with enhanced posts
-    - _Requirements: 1.1, 1.2, 5.1, 5.2_
+    - Test first-attempt-only scoring end-to-end
+    - Test difficulty filtering with real leaderboard data
+    - _Requirements: 1.1, 1.2, 5.1, 5.2, 6.1, 7.4_

@@ -83,6 +83,14 @@ export interface SubmitAnswerResponse
       error?: string;
       type?: 'completion' | 'encouragement';
     };
+    message?: string;
+    isRepeatAttempt?: boolean;
+    originalCompletion?: {
+      timeTaken: number;
+      score: number;
+      hintsUsed: number;
+      completedAt: Date;
+    };
   }> {}
 
 // GET /api/leaderboard/daily

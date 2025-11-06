@@ -333,7 +333,14 @@ export const useGameState = () => {
       const response = await apiService.submitAnswer(state.session.sessionId, answer, timeTaken);
 
       if (response.success && response.data) {
-        const { scoreResult, leaderboardPosition, commentPosting } = response.data;
+        const {
+          scoreResult,
+          leaderboardPosition,
+          commentPosting,
+          message,
+          isRepeatAttempt,
+          originalCompletion,
+        } = response.data;
 
         // Update state with results
         setState((prev) => ({
@@ -344,7 +351,30 @@ export const useGameState = () => {
           isSubmittingAnswer: false,
         }));
 
-        // Show success message with enhanced feedback
+        // Handle repeat attempts differently
+        if (isRepeatAttempt && originalCompletion) {
+          // Show repeat attempt message with original completion stats
+          const originalTimeFormatted = `${Math.floor(originalCompletion.timeTaken / 60)}:${(originalCompletion.timeTaken % 60).toString().padStart(2, '0')}`;
+          const originalDate = new Date(originalCompletion.completedAt).toLocaleDateString();
+
+          toast.info('🔄 Puzzle Already Completed', {
+            description: `Original completion: ${originalTimeFormatted} • ${originalCompletion.hintsUsed} hints • ${originalCompletion.score} points on ${originalDate}`,
+            duration: 8000,
+          });
+
+          // Show the first-attempt-only policy message
+          setTimeout(() => {
+            toast.info('📊 Leaderboard Policy', {
+              description:
+                'Only your first correct attempt counts for leaderboard rankings to ensure fair competition',
+              duration: 6000,
+            });
+          }, 2000);
+
+          return; // Exit early for repeat attempts
+        }
+
+        // Show success message with enhanced feedback for first attempts
         if (scoreResult.correct) {
           const timeFormatted = `${Math.floor(timeTaken / 60)}:${(timeTaken % 60).toString().padStart(2, '0')}`;
 
@@ -420,31 +450,39 @@ export const useGameState = () => {
           const number = answer[1] + 1;
           const attemptedAnswer = `${letter}${number}`;
 
-          toast.error(`❌ Incorrect answer: ${attemptedAnswer}`, {
-            description:
-              'Trace the laser path carefully - check mirror reflections and material interactions',
-            duration: 5000,
-          });
+          // Check if this is a message about first-attempt-only policy
+          if (message && message.includes('first correct attempt')) {
+            toast.info('🔄 First Attempt Policy', {
+              description: message,
+              duration: 6000,
+            });
+          } else {
+            toast.error(`❌ Incorrect answer: ${attemptedAnswer}`, {
+              description:
+                'Trace the laser path carefully - check mirror reflections and material interactions',
+              duration: 5000,
+            });
 
-          // Provide helpful tips based on hints used
-          setTimeout(() => {
-            if (scoreResult.hintsUsed === 0) {
-              toast.info('💡 Tip: Use hints to reveal parts of the laser path', {
-                description: 'Hints show you exactly where the laser travels',
-                duration: 4000,
-              });
-            } else if (scoreResult.hintsUsed < 3) {
-              toast.info('🔍 Need more guidance?', {
-                description: 'Use additional hints to see more of the laser path',
-                duration: 4000,
-              });
-            } else {
-              toast.info('🎯 Almost there!', {
-                description: 'The laser path is mostly revealed - check the final exit carefully',
-                duration: 4000,
-              });
-            }
-          }, 1500);
+            // Provide helpful tips based on hints used
+            setTimeout(() => {
+              if (scoreResult.hintsUsed === 0) {
+                toast.info('💡 Tip: Use hints to reveal parts of the laser path', {
+                  description: 'Hints show you exactly where the laser travels',
+                  duration: 4000,
+                });
+              } else if (scoreResult.hintsUsed < 3) {
+                toast.info('🔍 Need more guidance?', {
+                  description: 'Use additional hints to see more of the laser path',
+                  duration: 4000,
+                });
+              } else {
+                toast.info('🎯 Almost there!', {
+                  description: 'The laser path is mostly revealed - check the final exit carefully',
+                  duration: 4000,
+                });
+              }
+            }, 1500);
+          }
 
           // Handle comment posting feedback for incorrect answers
           if (commentPosting && !commentPosting.success) {
