@@ -60,7 +60,7 @@ export class PerformanceOptimizationService {
       enableEntryExitCaching: true,
       enableValidationCaching: true,
       enableMetricsCollection: true,
-      cacheWarmupOnStartup: true,
+      cacheWarmupOnStartup: false, // Disabled - Devvit Redis only works in request context
       maxCacheSize: 1000,
       cacheHitRateThreshold: 0.7, // 70% minimum hit rate
       ...config,
@@ -68,11 +68,14 @@ export class PerformanceOptimizationService {
 
     this.cacheStats = this.initializeCacheStats();
 
-    if (this.config.cacheWarmupOnStartup) {
-      this.warmupCaches().catch((error) => {
-        logger.error('Cache warmup failed', { error });
-      });
-    }
+    // Note: Cache warmup is disabled during startup as Devvit Redis
+    // can only be accessed within request context. Caches will be
+    // populated lazily during actual requests.
+    logger.info('Performance optimization service initialized', {
+      enableEntryExitCaching: this.config.enableEntryExitCaching,
+      enableValidationCaching: this.config.enableValidationCaching,
+      cacheWarmupOnStartup: false, // Always false for Devvit compatibility
+    });
   }
 
   public static getInstance(

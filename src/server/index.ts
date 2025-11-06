@@ -17,6 +17,7 @@ import puzzleRoutes from './routes/puzzleRoutes.js';
 import enhancedPuzzleRoutes from './routes/enhancedPuzzleRoutes.js';
 import leaderboardRoutes from './routes/leaderboardRoutes.js';
 import healthRoutes from './routes/healthRoutes.js';
+import completionCommentRoutes from './routes/completionCommentRoutes.js';
 
 const app = express();
 
@@ -206,6 +207,7 @@ router.post<{ postId: string }, DecrementResponse | { status: string; message: s
 router.use('/api/puzzle', puzzleRoutes);
 router.use('/api/puzzle', enhancedPuzzleRoutes); // Enhanced generation endpoints
 router.use('/api/leaderboard', leaderboardRoutes);
+router.use('/api/completion-comment', completionCommentRoutes); // Dedicated completion comment handler
 router.use('/api', healthRoutes);
 
 // Debug endpoint to test comment processing manually

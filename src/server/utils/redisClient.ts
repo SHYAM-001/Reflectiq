@@ -56,7 +56,11 @@ class RedisClientManager {
     };
 
     this.operationMetrics = new Map();
-    this.initializeConnection();
+
+    // Note: Connection initialization is disabled for Devvit compatibility
+    // Redis operations can only be performed within request context
+    // Health checks will be performed lazily when needed
+    logger.info('Redis client initialized - health check will be performed lazily');
   }
 
   public static getInstance(config?: Partial<RedisConfig>): RedisClientManager {
@@ -68,21 +72,17 @@ class RedisClientManager {
 
   /**
    * Initialize Redis connection and perform health check
+   * Note: This method is disabled for Devvit compatibility
+   * Redis operations can only be performed within request context
    */
   private async initializeConnection(): Promise<void> {
-    try {
-      await this.healthCheck();
-      this.connectionStatus.isConnected = true;
-      logger.info('Redis connection initialized successfully');
-    } catch (error) {
-      this.connectionStatus.isConnected = false;
-      this.connectionStatus.lastError = error instanceof Error ? error.message : 'Unknown error';
-      logger.error('Failed to initialize Redis connection', { error });
-    }
+    // Disabled for Devvit compatibility - Redis only works in request context
+    logger.info('Redis connection initialization skipped for Devvit compatibility');
   }
 
   /**
    * Perform Redis health check
+   * Note: This only works within Devvit request context
    */
   public async healthCheck(): Promise<boolean> {
     try {
@@ -114,6 +114,15 @@ class RedisClientManager {
       this.connectionStatus.isConnected = false;
       this.connectionStatus.lastError = error instanceof Error ? error.message : 'Unknown error';
       this.connectionStatus.errorCount++;
+
+      // Check if this is the "No context found" error from Devvit
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      if (errorMessage.includes('No context found')) {
+        logger.debug(
+          'Redis health check called outside request context - this is expected during startup'
+        );
+        return false; // Return false but don't log as error
+      }
 
       logger.error('Redis health check failed', { error });
       return false;

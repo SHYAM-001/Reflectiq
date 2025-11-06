@@ -50,4 +50,10 @@ export type {
   SubmitAnswerResponse,
   GetLeaderboardRequest,
   GetLeaderboardResponse,
+  GetVolumeMetricsRequest,
+  GetVolumeMetricsResponse,
+  GetSuccessRateMetricsRequest,
+  GetSuccessRateMetricsResponse,
+  GetCompletionTimeMetricsRequest,
+  GetCompletionTimeMetricsResponse,
 } from './api.js';

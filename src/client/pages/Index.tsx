@@ -18,7 +18,7 @@ const Index = () => {
         return (
           <ErrorScreen
             error={gameState.error || 'An unknown error occurred'}
-            errorType={gameState.errorType}
+            errorType={gameState.errorType || 'NETWORK_ERROR'}
             retryCount={gameState.retryCount}
             onRetry={gameState.retryGame}
             onReset={gameState.resetGame}
@@ -37,6 +37,7 @@ const Index = () => {
             hintPaths={gameState.hintPaths}
             isTimerRunning={gameState.isTimerRunning}
             isRequestingHint={gameState.isRequestingHint}
+            isSubmittingAnswer={gameState.isSubmittingAnswer}
             onRequestHint={gameState.requestHint}
             onSubmitAnswer={gameState.submitAnswer}
             onBack={gameState.resetGame}
@@ -47,9 +48,10 @@ const Index = () => {
         return (
           <SubmissionScreen
             puzzle={gameState.currentPuzzle!}
-            selectedAnswer={gameState.selectedAnswer!}
             finalTime={gameState.finalTime!}
             hintsUsed={gameState.hintsUsed}
+            scoreResult={gameState.scoreResult || undefined}
+            leaderboardPosition={gameState.leaderboardPosition}
             onPlayAgain={gameState.resetGame}
           />
         );

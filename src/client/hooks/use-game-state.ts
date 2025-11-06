@@ -3,7 +3,7 @@
  * Manages puzzle data, session state, and API interactions
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { toast } from 'sonner';
 import EnhancedApiService, { ApiError } from '../services/enhanced-api';
 import { useErrorHandler } from '../components/ErrorBoundary';
@@ -20,9 +20,13 @@ import {
 
 export type GameState = 'loading' | 'menu' | 'playing' | 'completed' | 'error';
 
+type AppInitData =
+  | InitResponse
+  | { offline: true; username: string; success: false; message: string };
+
 interface GameStateData {
   // App initialization
-  appData: InitResponse | null;
+  appData: AppInitData | null;
 
   // Game state
   gameState: GameState;
@@ -40,6 +44,7 @@ interface GameStateData {
   finalTime: number | null;
   selectedAnswer: GridPosition | null;
   isRequestingHint: boolean;
+  isSubmittingAnswer: boolean;
 
   // Results
   scoreResult: ScoreResult | null;
@@ -65,6 +70,7 @@ export const useGameState = () => {
     finalTime: null,
     selectedAnswer: null,
     isRequestingHint: false,
+    isSubmittingAnswer: false,
     scoreResult: null,
     leaderboardPosition: null,
     error: null,
@@ -75,12 +81,7 @@ export const useGameState = () => {
   const apiService = EnhancedApiService.getInstance();
   const { handleError } = useErrorHandler();
 
-  // Initialize app on mount
-  useEffect(() => {
-    void initializeApp();
-  }, []);
-
-  const initializeApp = async () => {
+  const initializeApp = useCallback(async () => {
     try {
       setState((prev) => ({
         ...prev,
@@ -90,13 +91,18 @@ export const useGameState = () => {
         retryCount: 0,
       }));
 
-      const appData = await apiService.initializeApp();
+      const appData = (await apiService.initializeApp()) as AppInitData;
 
       // Handle offline initialization
-      if (appData.offline) {
+      if ('offline' in appData && appData.offline) {
         setState((prev) => ({
           ...prev,
-          appData: { ...appData, username: 'offline_user' },
+          appData: {
+            offline: true,
+            username: 'offline_user',
+            success: false,
+            message: 'Offline mode',
+          },
           gameState: 'menu',
           error: null,
           errorType: null,
@@ -110,10 +116,16 @@ export const useGameState = () => {
       }
 
       // Set the app context for navigation
-      setAppContext({
-        postId: appData.postId,
-        subreddit: appData.subreddit,
-      });
+      if ('postId' in appData && typeof appData.postId === 'string') {
+        const subreddit =
+          'subreddit' in appData && typeof appData.subreddit === 'string'
+            ? appData.subreddit
+            : undefined;
+        setAppContext({
+          postId: appData.postId,
+          ...(subreddit && { subreddit }),
+        });
+      }
 
       setState((prev) => ({
         ...prev,
@@ -135,7 +147,12 @@ export const useGameState = () => {
         retryCount: prev.retryCount + 1,
       }));
     }
-  };
+  }, [apiService, handleError]);
+
+  // Initialize app on mount
+  useEffect(() => {
+    void initializeApp();
+  }, []);
 
   const startGame = async () => {
     try {
@@ -212,6 +229,7 @@ export const useGameState = () => {
         isTimerRunning: true,
         finalTime: null,
         isRequestingHint: false,
+        isSubmittingAnswer: false,
         scoreResult: null,
         leaderboardPosition: null,
         error: null,
@@ -282,18 +300,28 @@ export const useGameState = () => {
 
   const submitAnswer = async (answer: GridPosition, timeTaken: number) => {
     if (!state.session) {
-      toast.error('No active session');
+      toast.error('No active session', {
+        description: 'Please start a new game to submit an answer',
+        duration: 3000,
+      });
       return;
     }
 
     try {
-      // Stop the timer immediately
+      // Set loading state and stop the timer immediately
       setState((prev) => ({
         ...prev,
         isTimerRunning: false,
         finalTime: timeTaken,
         selectedAnswer: answer,
+        isSubmittingAnswer: true,
       }));
+
+      // Show processing feedback
+      toast.info('Processing your answer...', {
+        description: 'Validating solution and updating leaderboard',
+        duration: 2000,
+      });
 
       // Submit the answer to the server
       console.log('Submitting answer to server:', {
@@ -305,37 +333,180 @@ export const useGameState = () => {
       const response = await apiService.submitAnswer(state.session.sessionId, answer, timeTaken);
 
       if (response.success && response.data) {
-        const { scoreResult, submission, leaderboardPosition } = response.data;
+        const { scoreResult, leaderboardPosition, commentPosting } = response.data;
 
         // Update state with results
         setState((prev) => ({
           ...prev,
           scoreResult,
-          leaderboardPosition,
+          leaderboardPosition: leaderboardPosition ?? null,
           gameState: 'completed',
+          isSubmittingAnswer: false,
         }));
 
-        // Show success message
+        // Show success message with enhanced feedback
         if (scoreResult.correct) {
-          toast.success(`Correct! Score: ${scoreResult.finalScore} points`, {
-            description: `Completed in ${Math.floor(timeTaken / 60)}:${(timeTaken % 60).toString().padStart(2, '0')} with ${scoreResult.hintsUsed} hints`,
+          const timeFormatted = `${Math.floor(timeTaken / 60)}:${(timeTaken % 60).toString().padStart(2, '0')}`;
+
+          // Enhanced success message with score breakdown
+          const scoreBreakdown = [
+            `Base: ${scoreResult.baseScore}`,
+            `Time multiplier: ${scoreResult.timeMultiplier}x`,
+            `Hint multiplier: ${scoreResult.hintMultiplier}x`,
+          ].join(' • ');
+
+          const rankingText = leaderboardPosition
+            ? `Ranked #${leaderboardPosition} in ${state.selectedDifficulty}`
+            : 'Leaderboard updated';
+
+          toast.success(`🎉 Correct! Final Score: ${scoreResult.finalScore} points`, {
+            description: `${timeFormatted} • ${scoreResult.hintsUsed} hints • ${rankingText}`,
+            duration: 6000,
+          });
+
+          // Show detailed score breakdown in a separate toast
+          setTimeout(() => {
+            toast.info('Score Breakdown', {
+              description: scoreBreakdown,
+              duration: 4000,
+            });
+          }, 1000);
+
+          // Handle comment posting feedback for successful submissions
+          if (commentPosting) {
+            if (commentPosting.success) {
+              toast.success('🎉 Completion shared with the community!', {
+                description: 'Your achievement has been posted to celebrate your success',
+                duration: 3000,
+              });
+            } else {
+              // Provide specific feedback based on error type
+              const errorType = commentPosting.error?.split(':')[0] || 'unknown';
+              const feedbackMessage =
+                "Your score was saved, but we couldn't share your achievement";
+              let feedbackDescription = "Don't worry - your completion is still recorded!";
+
+              switch (errorType) {
+                case 'timeout':
+                  feedbackDescription = 'Reddit is responding slowly. Your completion is saved!';
+                  break;
+                case 'rate_limit':
+                  feedbackDescription = 'Too many celebrations happening! Your score is recorded.';
+                  break;
+                case 'api_unavailable':
+                  feedbackDescription =
+                    'Reddit is temporarily unavailable. Your progress is saved!';
+                  break;
+                case 'permission':
+                  feedbackDescription = 'Unable to post comments right now. Your score counts!';
+                  break;
+                case 'post_not_found':
+                  feedbackDescription = 'Post context changed. Your completion is still valid!';
+                  break;
+                default:
+                  feedbackDescription =
+                    'Technical issue with sharing. Your achievement is recorded!';
+              }
+
+              toast.info(feedbackMessage, {
+                description: feedbackDescription,
+                duration: 4000,
+              });
+            }
+          }
+        } else {
+          // Enhanced error feedback with specific guidance
+          const letter = String.fromCharCode(65 + answer[0]);
+          const number = answer[1] + 1;
+          const attemptedAnswer = `${letter}${number}`;
+
+          toast.error(`❌ Incorrect answer: ${attemptedAnswer}`, {
+            description:
+              'Trace the laser path carefully - check mirror reflections and material interactions',
             duration: 5000,
           });
-        } else {
-          toast.error('Incorrect answer. Try again!', {
-            description: 'Keep analyzing the laser path and material interactions',
-            duration: 4000,
-          });
+
+          // Provide helpful tips based on hints used
+          setTimeout(() => {
+            if (scoreResult.hintsUsed === 0) {
+              toast.info('💡 Tip: Use hints to reveal parts of the laser path', {
+                description: 'Hints show you exactly where the laser travels',
+                duration: 4000,
+              });
+            } else if (scoreResult.hintsUsed < 3) {
+              toast.info('🔍 Need more guidance?', {
+                description: 'Use additional hints to see more of the laser path',
+                duration: 4000,
+              });
+            } else {
+              toast.info('🎯 Almost there!', {
+                description: 'The laser path is mostly revealed - check the final exit carefully',
+                duration: 4000,
+              });
+            }
+          }, 1500);
+
+          // Handle comment posting feedback for incorrect answers
+          if (commentPosting && !commentPosting.success) {
+            // Only show feedback if there was an unexpected error (not just API unavailable)
+            const errorType = commentPosting.error?.split(':')[0] || 'unknown';
+            if (errorType !== 'api_unavailable' && errorType !== 'timeout') {
+              console.warn('Encouragement comment failed:', commentPosting.error);
+            }
+          }
+
           // Allow retry for incorrect answers
-          setState((prev) => ({ ...prev, isTimerRunning: true, gameState: 'playing' }));
+          setState((prev) => ({
+            ...prev,
+            isTimerRunning: true,
+            gameState: 'playing',
+            isSubmittingAnswer: false,
+          }));
         }
       } else {
         throw new Error(response.error?.message || 'Submission failed');
       }
     } catch (error) {
       console.error('Failed to submit answer:', error);
-      toast.error('Failed to submit answer. Please try again.');
-      setState((prev) => ({ ...prev, isTimerRunning: true, gameState: 'playing' }));
+
+      const apiError = error as ApiError;
+      let errorMessage = 'Failed to submit answer';
+      let errorDescription = 'Please check your connection and try again';
+
+      // Provide specific error guidance based on error type
+      switch (apiError.type) {
+        case 'NETWORK_ERROR':
+          errorMessage = 'Connection problem';
+          errorDescription = 'Check your internet connection and try again';
+          break;
+        case 'TIMEOUT_ERROR':
+          errorMessage = 'Request timed out';
+          errorDescription = 'The server is responding slowly. Please try again';
+          break;
+        case 'VALIDATION_ERROR':
+          errorMessage = 'Invalid submission';
+          errorDescription = 'Please select a valid exit cell and try again';
+          break;
+        case 'SERVER_ERROR':
+          errorMessage = 'Server error';
+          errorDescription = 'Our servers are having issues. Please try again in a moment';
+          break;
+        default:
+          errorMessage = 'Submission failed';
+          errorDescription = 'Something went wrong. Please try submitting again';
+      }
+
+      toast.error(errorMessage, {
+        description: errorDescription,
+        duration: 5000,
+      });
+
+      setState((prev) => ({
+        ...prev,
+        isTimerRunning: true,
+        gameState: 'playing',
+        isSubmittingAnswer: false,
+      }));
     }
   };
 
@@ -353,6 +524,7 @@ export const useGameState = () => {
       finalTime: null,
       selectedAnswer: null,
       isRequestingHint: false,
+      isSubmittingAnswer: false,
       scoreResult: null,
       leaderboardPosition: null,
       error: null,
