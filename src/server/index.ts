@@ -1410,26 +1410,46 @@ router.post('/internal/scheduler/post-daily-puzzle', async (_req, res): Promise<
       throw new Error('Subreddit name not available in context');
     }
 
-    // Create interactive custom posts for each difficulty level
+    // Create separate interactive custom posts for each difficulty level
     const availableDifficulties = puzzleStats.difficulties as ('easy' | 'medium' | 'hard')[];
+    const createdPosts: Array<{ difficulty: string; postId: string }> = [];
 
     try {
-      // Create a single post with all available difficulties
-      const post = await createPost('daily', availableDifficulties);
+      // Create separate posts for each difficulty
+      for (const difficulty of availableDifficulties) {
+        try {
+          const post = await createPost('daily', [difficulty], difficulty);
+          createdPosts.push({
+            difficulty: difficulty.charAt(0).toUpperCase() + difficulty.slice(1),
+            postId: post.id,
+          });
+          console.log(`Successfully posted ${difficulty} puzzle for ${today}: ${post.id}`);
 
-      console.log(`Successfully posted daily puzzle for ${today}: ${post.id}`);
+          // Add small delay between posts to avoid rate limiting
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        } catch (difficultyPostError) {
+          console.error(`Failed to create ${difficulty} post:`, difficultyPostError);
+          // Continue with other difficulties even if one fails
+        }
+      }
+
+      if (createdPosts.length === 0) {
+        throw new Error('Failed to create any puzzle posts');
+      }
+
+      console.log(`Successfully posted ${createdPosts.length} daily puzzle posts for ${today}`);
 
       const executionTime = Date.now() - startTime;
       res.json({
         status: 'success',
-        message: 'Daily puzzle posted successfully',
+        message: `${createdPosts.length} daily puzzle posts created successfully`,
         date: today,
-        postId: post.id,
+        posts: createdPosts,
         puzzleStats,
         executionTime,
       });
     } catch (postError) {
-      console.error('Failed to submit daily puzzle post:', postError);
+      console.error('Failed to submit daily puzzle posts:', postError);
       throw new Error(
         `Reddit post submission failed: ${postError instanceof Error ? postError.message : 'Unknown error'}`
       );
