@@ -447,13 +447,14 @@ router.post(
 
       for (const difficulty of difficulties) {
         try {
+          console.log(`[Mod Tool] Creating post for difficulty: ${difficulty}`);
           const post = await createPost('daily', [difficulty], difficulty);
           createdPosts.push({
             difficulty: difficulty.charAt(0).toUpperCase() + difficulty.slice(1),
             postId: post.id,
             url: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
           });
-          console.log(`Created ${difficulty} puzzle post: ${post.id}`);
+          console.log(`[Mod Tool] Created ${difficulty} puzzle post: ${post.id}`);
         } catch (error) {
           console.error(`Failed to create ${difficulty} puzzle post:`, error);
         }
@@ -1339,6 +1340,7 @@ router.post('/internal/scheduler/post-daily-puzzle', async (_req, res): Promise<
       // Create separate posts for each difficulty
       for (const difficulty of availableDifficulties) {
         try {
+          console.log(`Creating post for difficulty: ${difficulty}`);
           const post = await createPost('daily', [difficulty], difficulty);
           createdPosts.push({
             difficulty: difficulty.charAt(0).toUpperCase() + difficulty.slice(1),

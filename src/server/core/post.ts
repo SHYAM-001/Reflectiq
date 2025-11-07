@@ -16,6 +16,9 @@ const generateSplashConfig = (
   availableDifficulties?: ('easy' | 'medium' | 'hard')[],
   specificDifficulty?: 'easy' | 'medium' | 'hard'
 ): SplashConfig => {
+  console.log(
+    `[generateSplashConfig] puzzleType: ${puzzleType}, availableDifficulties: ${JSON.stringify(availableDifficulties)}, specificDifficulty: ${specificDifficulty}`
+  );
   const today = new Date();
   const formattedDate = today.toLocaleDateString('en-US', {
     weekday: 'long',
@@ -98,81 +101,86 @@ const generateSplashConfig = (
   }
 
   // Dynamic content arrays for variety
+  // Use explicit if-else for better debugging and clarity
+  let buttons: string[];
+  let headings: string[];
+
+  if (specificDifficulty === 'easy') {
+    buttons = [
+      '🌱 Start Learning',
+      '☕ Begin Gently',
+      '🎯 Try Easy Mode',
+      '💡 Light Start',
+      '🌟 First Steps',
+      '🟢 Play Easy',
+    ];
+    headings = [
+      `🟢 Easy ReflectIQ${difficultyText}`,
+      `🌱 Beginner's Laser Lab${difficultyText}`,
+      `☕ Gentle Brain Teaser${difficultyText}`,
+      `💡 Learning Mode${difficultyText}`,
+      `🌟 First Light${difficultyText}`,
+      `🎯 Starter Challenge${difficultyText}`,
+    ];
+  } else if (specificDifficulty === 'medium') {
+    buttons = [
+      '⚖️ Accept Challenge',
+      '🌊 Dive In',
+      '🎓 Level Up',
+      '⚡ Play Medium',
+      '🔍 Test Skills',
+      '🟡 Start Medium',
+    ];
+    headings = [
+      `🟡 Medium ReflectIQ${difficultyText}`,
+      `⚖️ Balanced Challenge${difficultyText}`,
+      `🌊 Intermediate Quest${difficultyText}`,
+      `🎓 Skill Builder${difficultyText}`,
+      `⚡ Medium Mastery${difficultyText}`,
+      `🔍 Sharp Thinking${difficultyText}`,
+    ];
+  } else if (specificDifficulty === 'hard') {
+    buttons = [
+      '🔥 Face the Fire',
+      '🏆 Prove Mastery',
+      '⚔️ Enter Battle',
+      '💎 Ultimate Test',
+      '🧠 Max Challenge',
+      '🔴 Play Hard',
+    ];
+    headings = [
+      `🔴 Hard ReflectIQ${difficultyText}`,
+      `🔥 Extreme Challenge${difficultyText}`,
+      `🏆 Master's Trial${difficultyText}`,
+      `⚔️ Ultimate Battle${difficultyText}`,
+      `💎 Expert Mode${difficultyText}`,
+      `🧠 Maximum Difficulty${difficultyText}`,
+    ];
+  } else {
+    // Fallback for multi-difficulty or undefined
+    buttons = [
+      '🚀 Start Challenge',
+      '⚡ Begin Puzzle',
+      '🎯 Play Now',
+      '🔴 Launch Game',
+      '💡 Illuminate Path',
+      '🌟 Start Quest',
+    ];
+    headings = [
+      `Daily ReflectIQ Challenge${difficultyText}`,
+      `⚡ Today's Laser Puzzle${difficultyText}`,
+      `🎯 ${dayOfWeek}'s Brain Teaser${difficultyText}`,
+      `🌟 ReflectIQ: Light & Logic${difficultyText}`,
+      `💎 Crystal Reflection Quest${difficultyText}`,
+      `🔬 Physics Puzzle Lab${difficultyText}`,
+    ];
+  }
+
   const configs = {
     normal: {
       descriptions,
-      buttons:
-        specificDifficulty === 'easy'
-          ? [
-              '🌱 Start Learning',
-              '☕ Begin Gently',
-              '🎯 Try Easy Mode',
-              '💡 Light Start',
-              '🌟 First Steps',
-              '🟢 Play Easy',
-            ]
-          : specificDifficulty === 'medium'
-            ? [
-                '⚖️ Accept Challenge',
-                '🌊 Dive In',
-                '🎓 Level Up',
-                '⚡ Play Medium',
-                '🔍 Test Skills',
-                '🟡 Start Medium',
-              ]
-            : specificDifficulty === 'hard'
-              ? [
-                  '🔥 Face the Fire',
-                  '🏆 Prove Mastery',
-                  '⚔️ Enter Battle',
-                  '💎 Ultimate Test',
-                  '🧠 Max Challenge',
-                  '🔴 Play Hard',
-                ]
-              : [
-                  '🚀 Start Challenge',
-                  '⚡ Begin Puzzle',
-                  '🎯 Play Now',
-                  '🔴 Launch Game',
-                  '💡 Illuminate Path',
-                  '🌟 Start Quest',
-                ],
-      headings:
-        specificDifficulty === 'easy'
-          ? [
-              `🟢 Easy ReflectIQ${difficultyText}`,
-              `🌱 Beginner's Laser Lab${difficultyText}`,
-              `☕ Gentle Brain Teaser${difficultyText}`,
-              `💡 Learning Mode${difficultyText}`,
-              `🌟 First Light${difficultyText}`,
-              `🎯 Starter Challenge${difficultyText}`,
-            ]
-          : specificDifficulty === 'medium'
-            ? [
-                `🟡 Medium ReflectIQ${difficultyText}`,
-                `⚖️ Balanced Challenge${difficultyText}`,
-                `🌊 Intermediate Quest${difficultyText}`,
-                `🎓 Skill Builder${difficultyText}`,
-                `⚡ Medium Mastery${difficultyText}`,
-                `🔍 Sharp Thinking${difficultyText}`,
-              ]
-            : specificDifficulty === 'hard'
-              ? [
-                  `🔴 Hard ReflectIQ${difficultyText}`,
-                  `🔥 Extreme Challenge${difficultyText}`,
-                  `🏆 Master's Trial${difficultyText}`,
-                  `⚔️ Ultimate Battle${difficultyText}`,
-                  `💎 Expert Mode${difficultyText}`,
-                  `🧠 Maximum Difficulty${difficultyText}`,
-                ]
-              : [
-                  `Daily ReflectIQ Challenge${difficultyText}`,
-                  `⚡ Today's Laser Puzzle${difficultyText}`,
-                  `🎯 ${dayOfWeek}'s Brain Teaser${difficultyText}`,
-                  `🌟 ReflectIQ: Light & Logic${difficultyText}`,
-                  `💎 Crystal Reflection Quest${difficultyText}`,
-                  `🔬 Physics Puzzle Lab${difficultyText}`,
-                ],
+      buttons,
+      headings,
     },
     weekend: {
       descriptions: [
