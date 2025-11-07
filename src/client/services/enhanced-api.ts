@@ -448,7 +448,8 @@ class EnhancedApiService {
   }
 
   /**
-   * Submit puzzle answer
+   * Submit puzzle answer with enhanced error handling for comment posting failures
+   * Requirements: 8.3, 10.3, 11.4
    */
   async submitAnswer(
     sessionId: string,
@@ -456,7 +457,7 @@ class EnhancedApiService {
     timeTaken: number
   ): Promise<SubmitAnswerResponse> {
     try {
-      return await this.makeRequest<SubmitAnswerResponse>(
+      const response = await this.makeRequest<SubmitAnswerResponse>(
         '/api/puzzle/submit',
         {
           method: 'POST',
@@ -464,14 +465,33 @@ class EnhancedApiService {
         },
         'submitAnswer'
       );
+
+      // Log comment posting status for monitoring
+      if (response.success && response.data?.commentPosting) {
+        const { commentPosting } = response.data;
+        if (!commentPosting.success) {
+          console.warn(`Comment posting failed for ${commentPosting.type}:`, commentPosting.error);
+        } else {
+          console.log(`Comment posting succeeded for ${commentPosting.type}`);
+        }
+      }
+
+      return response;
     } catch (error) {
       console.error('Error submitting answer:', error);
 
       if (error.type === 'OFFLINE_ERROR') {
-        // Queue submission for when online
+        // Enhanced offline handling with comment posting awareness
         toast.info('Answer queued for submission', {
-          description: 'Will be submitted when connection is restored.',
+          description:
+            'Will be submitted when connection is restored. Community sharing may be delayed.',
           duration: 5000,
+        });
+      } else if (error.type === 'NETWORK_ERROR') {
+        // Network issues might affect comment posting even if submission succeeds
+        toast.warning('Network issues detected', {
+          description: 'Your answer was processed, but community features may be limited.',
+          duration: 4000,
         });
       }
 

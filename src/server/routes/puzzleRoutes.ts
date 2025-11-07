@@ -17,6 +17,7 @@ import {
   validateRequired,
   checkRateLimit,
 } from '../utils/errorHandler.js';
+import { completionCommentHandler } from '../handlers/completionCommentHandler.js';
 import {
   GetPuzzleRequest,
   GetPuzzleResponse,
@@ -37,13 +38,19 @@ import {
 } from '../../shared/types/puzzle.js';
 
 import { PuzzleService } from '../services/PuzzleService.js';
+import SubmissionAnalyticsService from '../services/SubmissionAnalyticsService.js';
 import { HINT_CONFIG, DIFFICULTY_CONFIGS } from '../../shared/physics/constants.js';
 
 const router = Router();
 
-// Initialize repositories
+// Initialize repositories and services
 const puzzleRepository = PuzzleRepository.getInstance();
 const sessionRepository = SessionRepository.getInstance();
+const analyticsService = SubmissionAnalyticsService.getInstance();
+
+// Note: Comment posting functionality has been moved to dedicated handler
+// See: src/server/handlers/completionCommentHandler.ts
+// Requirements: 10.1, 10.2, 10.3, 10.5
 
 /**
  * GET /api/puzzle/current?difficulty=Easy|Medium|Hard
@@ -279,11 +286,66 @@ router.post(
       return sendErrorResponse(res, 'SESSION_EXPIRED', 'Session is no longer active');
     }
 
+    // Check if user has already completed this puzzle correctly (first-attempt-only policy)
+    // Requirements: 6.1, 6.2, 6.3, 6.4, 6.5
+    const leaderboardService = LeaderboardService.getInstance();
+    const hasAlreadyCompleted = await leaderboardService.hasUserCompleted(
+      sessionData.puzzleId,
+      sessionData.userId
+    );
+
+    if (hasAlreadyCompleted) {
+      // User has already completed this puzzle, return existing submission data
+      const existingSubmission = await leaderboardService.getUserSubmission(
+        sessionData.puzzleId,
+        sessionData.userId
+      );
+
+      if (existingSubmission) {
+        const responseData = {
+          scoreResult: {
+            baseScore: 0,
+            hintMultiplier: 1,
+            timeMultiplier: 1,
+            finalScore: 0, // No score for repeat attempts
+            correct: true,
+            timeTaken: existingSubmission.timeTaken,
+            hintsUsed: existingSubmission.hintsUsed,
+            maxPossibleScore: 0,
+          },
+          submission: existingSubmission,
+          leaderboardPosition: undefined, // No leaderboard update for repeat attempts
+          message: 'Puzzle already completed. Only first correct attempt counts for leaderboard.',
+          isRepeatAttempt: true,
+          originalCompletion: {
+            timeTaken: existingSubmission.timeTaken,
+            score: existingSubmission.score,
+            hintsUsed: existingSubmission.hintsUsed,
+            completedAt: existingSubmission.timestamp,
+          },
+        };
+
+        return sendSuccessResponse(res, responseData);
+      }
+    }
+
     // Get puzzle data
     const puzzleService = PuzzleService.getInstance();
     const puzzleResponse = await puzzleService.getCurrentPuzzle(sessionData.difficulty);
 
     if (!puzzleResponse.success || !puzzleResponse.data) {
+      // Log validation failure metrics
+      analyticsService.logValidationMetrics({
+        operation: 'answer_validation',
+        startTime: Date.now(),
+        endTime: Date.now(),
+        duration: 0,
+        success: false,
+        puzzleId: sessionData.puzzleId,
+        userId: sessionData.userId,
+        error: 'Puzzle not found',
+      });
+
       const response: SubmitAnswerResponse = {
         success: false,
         error: {
@@ -297,8 +359,25 @@ router.post(
 
     const puzzle = puzzleResponse.data;
 
+    // Track answer validation performance
+    const validationStartTime = Date.now();
+
     // Check if answer is correct
     const correct = answer[0] === puzzle.solution[0] && answer[1] === puzzle.solution[1];
+
+    const validationEndTime = Date.now();
+    const validationDuration = validationEndTime - validationStartTime;
+
+    // Log validation performance metrics
+    analyticsService.logValidationMetrics({
+      operation: 'answer_validation',
+      startTime: validationStartTime,
+      endTime: validationEndTime,
+      duration: validationDuration,
+      success: true,
+      puzzleId: sessionData.puzzleId,
+      userId: sessionData.userId,
+    });
 
     // Calculate score using the scoring formula from requirements
     const config = DIFFICULTY_CONFIGS[sessionData.difficulty];
@@ -334,66 +413,57 @@ router.post(
       difficulty: sessionData.difficulty,
     };
 
-    // Store submission
+    // Store submission (using consistent key format with reflectiq: prefix)
     try {
       await redisClient.hSet(
-        `submissions:${sessionData.puzzleId}`,
+        `reflectiq:submissions:${sessionData.puzzleId}`,
         sessionData.userId,
         JSON.stringify(submission)
       );
-      await redisClient.expire(`submissions:${sessionData.puzzleId}`, 604800);
+      await redisClient.expire(`reflectiq:submissions:${sessionData.puzzleId}`, 604800);
     } catch (error) {
       console.warn('Failed to store submission:', error);
     }
 
-    // Update leaderboard if score > 0 using atomic operations
+    // Always attempt leaderboard update using atomic operations (handles first-attempt-only logic)
     let leaderboardPosition: number | undefined;
-    if (finalScore > 0) {
-      try {
-        const leaderboardService = LeaderboardService.getInstance();
+    let leaderboardUpdateMessage: string | undefined;
 
-        // Use atomic score update for consistency
-        const updateResult = await leaderboardService.atomicScoreUpdate(
-          sessionData.puzzleId,
-          sessionData.userId,
-          finalScore,
-          submission
-        );
+    try {
+      const leaderboardService = LeaderboardService.getInstance();
 
-        if (updateResult.success) {
-          // Get leaderboard position
-          try {
-            const position = await leaderboardService.getUserPuzzleRank(
-              sessionData.puzzleId,
-              sessionData.userId
-            );
-            leaderboardPosition = position || undefined;
-          } catch (rankError) {
-            console.warn('Failed to get leaderboard position:', rankError);
-            leaderboardPosition = 1; // Fallback
-          }
-        } else {
-          console.warn('Atomic score update failed:', updateResult.error);
-          // Fallback to direct Redis operations for backward compatibility
-          await redisClient.zAdd(
-            `leaderboard:${sessionData.puzzleId}`,
-            sessionData.userId,
-            finalScore
+      // Use atomic score update for consistency (handles first attempt only logic)
+      const updateResult = await leaderboardService.atomicScoreUpdate(
+        sessionData.puzzleId,
+        sessionData.userId,
+        finalScore,
+        submission
+      );
+
+      if (updateResult.success) {
+        // Get leaderboard position for successful updates
+        try {
+          const position = await leaderboardService.getUserPuzzleRank(
+            sessionData.puzzleId,
+            sessionData.userId
           );
-          await redisClient.expire(`leaderboard:${sessionData.puzzleId}`, 604800);
-
-          const today = new Date().toISOString().split('T')[0];
-          await redisClient.zAdd(
-            `leaderboard:daily:${today}`,
-            `${sessionData.userId}:${sessionData.difficulty}`,
-            finalScore
-          );
-          await redisClient.expire(`leaderboard:daily:${today}`, 604800);
-          leaderboardPosition = 1;
+          leaderboardPosition = position || undefined;
+          leaderboardUpdateMessage = 'Leaderboard updated successfully';
+        } catch (rankError) {
+          console.warn('Failed to get leaderboard position:', rankError);
+          leaderboardPosition = 1; // Fallback
         }
-      } catch (error) {
-        console.warn('Failed to update leaderboard:', error);
+      } else {
+        // Log the reason why leaderboard wasn't updated (first attempt only, incorrect answer, etc.)
+        console.log(`Leaderboard not updated for ${sessionData.userId}: ${updateResult.error}`);
+        leaderboardUpdateMessage = updateResult.error;
+
+        // For incorrect answers or repeat attempts, don't show leaderboard position
+        leaderboardPosition = undefined;
       }
+    } catch (error) {
+      console.warn('Failed to update leaderboard:', error);
+      leaderboardUpdateMessage = 'Leaderboard update failed due to technical error';
     }
 
     // Mark session as submitted
@@ -404,80 +474,185 @@ router.post(
       console.warn('Failed to update session status:', error);
     }
 
-    // Post public comment announcement for completed puzzles
+    // Enhanced comment posting using dedicated Devvit handler
+    // Requirements: 10.1, 10.2, 10.3, 10.5
+    let commentPostingResult: {
+      success: boolean;
+      error?: string;
+      type?: 'completion' | 'encouragement';
+    } = { success: true };
+
     if (finalScore > 0) {
-      try {
-        // Format time as MM:SS
-        const minutes = Math.floor(timeTaken / 60);
-        const seconds = Math.floor(timeTaken % 60);
-        const timeFormatted = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      // Post completion comment for successful submissions using dedicated handler
+      const commentStartTime = Date.now();
+      commentPostingResult = await completionCommentHandler.postCompletionCommentFromSession(
+        sessionData,
+        timeTaken,
+        finalScore,
+        'completion'
+      );
+      const commentEndTime = Date.now();
 
-        // Debug variables before creating comment text
-        console.log('Comment variables:', {
-          userId: sessionData.userId,
-          difficulty: sessionData.difficulty,
-          timeFormatted,
-          hintsUsed: sessionData.hintsUsed,
-          finalScore,
-          leaderboardPosition,
-        });
-
-        // Create celebration comment
-        const commentText = `🎉 u/${sessionData.userId} completed the ${sessionData.difficulty} puzzle in ${timeFormatted} with ${sessionData.hintsUsed} hints! Final score: ${finalScore} points! ${leaderboardPosition ? `(Rank #${leaderboardPosition})` : ''} 🚀`;
-
-        console.log('Generated comment text:', commentText);
-        console.log('Comment text type:', typeof commentText);
-        console.log('Comment text length:', commentText?.length);
-
-        // Get current post context to determine which post to comment on
-        console.log('Context object:', JSON.stringify(context, null, 2));
-        const { postId } = context;
-
-        if (postId) {
-          console.log(`Attempting to post celebration comment to post ${postId}`);
-          await reddit.submitComment({
-            id: postId,
-            text: commentText,
-          });
-          console.log(
-            `✅ Posted celebration comment for ${sessionData.userId}: ${finalScore} points`
-          );
-        } else {
-          console.warn('❌ No postId available in context for celebration comment');
-          console.log('Available context keys:', Object.keys(context));
-          console.log('Full context:', context);
-        }
-      } catch (error) {
-        console.warn(`Failed to post celebration comment for ${sessionData.userId}:`, error);
-        // Don't fail the submission if comment posting fails
-      }
+      // Log comment posting performance metrics
+      analyticsService.logCommentPostingMetrics({
+        operation: 'comment_posting',
+        startTime: commentStartTime,
+        endTime: commentEndTime,
+        duration: commentEndTime - commentStartTime,
+        success: commentPostingResult.success,
+        commentType: 'completion',
+        userId: sessionData.userId,
+        puzzleId: sessionData.puzzleId,
+        error: commentPostingResult.error,
+      });
     } else if (correct === false) {
-      // Post encouragement comment for incorrect answers
-      try {
-        const commentText = `💪 u/${sessionData.userId} gave it a great try on the ${sessionData.difficulty} puzzle! Keep analyzing those laser paths - you've got this! 🔬✨`;
+      // Post encouragement comment for incorrect answers using dedicated handler
+      const commentStartTime = Date.now();
+      commentPostingResult = await completionCommentHandler.postCompletionCommentFromSession(
+        sessionData,
+        timeTaken,
+        finalScore,
+        'encouragement'
+      );
+      const commentEndTime = Date.now();
 
-        const { postId } = context;
-        if (postId) {
-          console.log(`Attempting to post encouragement comment to post ${postId}`);
-          await reddit.submitComment({
-            id: postId,
-            text: commentText,
-          });
-          console.log(`✅ Posted encouragement comment for ${sessionData.userId}`);
-        } else {
-          console.warn('❌ No postId available in context for encouragement comment');
-          console.log('Available context keys:', Object.keys(context));
-        }
-      } catch (error) {
-        console.warn(`Failed to post encouragement comment for ${sessionData.userId}:`, error);
-      }
+      // Log comment posting performance metrics
+      analyticsService.logCommentPostingMetrics({
+        operation: 'comment_posting',
+        startTime: commentStartTime,
+        endTime: commentEndTime,
+        duration: commentEndTime - commentStartTime,
+        success: commentPostingResult.success,
+        commentType: 'encouragement',
+        userId: sessionData.userId,
+        puzzleId: sessionData.puzzleId,
+        error: commentPostingResult.error,
+      });
     }
 
-    sendSuccessResponse(res, {
+    // Log comprehensive submission analytics
+    await analyticsService.logSubmission(
+      submission,
+      puzzle.solution as [number, number],
+      leaderboardPosition
+    );
+
+    // Include comment posting status and leaderboard update info in response for client-side feedback
+    const responseData = {
       scoreResult,
       submission,
       leaderboardPosition,
-    });
+      commentPosting: commentPostingResult,
+      leaderboardUpdate: {
+        success: leaderboardPosition !== undefined,
+        message: leaderboardUpdateMessage,
+      },
+    };
+
+    sendSuccessResponse(res, responseData);
+  })
+);
+
+/**
+ * GET /api/puzzle/analytics/volume?date=YYYY-MM-DD&difficulty=Easy|Medium|Hard
+ * Get submission volume analytics for a specific date and difficulty
+ * Requirements: 11.5
+ */
+router.get(
+  '/analytics/volume',
+  asyncHandler(async (req, res) => {
+    const { date, difficulty } = req.query;
+
+    // Validate parameters
+    if (!date || !difficulty) {
+      return sendErrorResponse(res, 'VALIDATION_ERROR', 'Date and difficulty are required');
+    }
+
+    if (!['Easy', 'Medium', 'Hard'].includes(difficulty as string)) {
+      return sendErrorResponse(res, 'VALIDATION_ERROR', 'Difficulty must be Easy, Medium, or Hard');
+    }
+
+    // Validate date format
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(date as string)) {
+      return sendErrorResponse(res, 'VALIDATION_ERROR', 'Date must be in YYYY-MM-DD format');
+    }
+
+    const metrics = await analyticsService.getVolumeMetrics(
+      date as string,
+      difficulty as Difficulty
+    );
+
+    sendSuccessResponse(res, metrics);
+  })
+);
+
+/**
+ * GET /api/puzzle/analytics/success-rate?period=hourly|daily&timestamp=...&difficulty=Easy|Medium|Hard
+ * Get success rate metrics for a specific period and difficulty
+ * Requirements: 11.5
+ */
+router.get(
+  '/analytics/success-rate',
+  asyncHandler(async (req, res) => {
+    const { period, timestamp, difficulty } = req.query;
+
+    // Validate parameters
+    if (!period || !timestamp || !difficulty) {
+      return sendErrorResponse(
+        res,
+        'VALIDATION_ERROR',
+        'Period, timestamp, and difficulty are required'
+      );
+    }
+
+    if (!['hourly', 'daily'].includes(period as string)) {
+      return sendErrorResponse(res, 'VALIDATION_ERROR', 'Period must be hourly or daily');
+    }
+
+    if (!['Easy', 'Medium', 'Hard'].includes(difficulty as string)) {
+      return sendErrorResponse(res, 'VALIDATION_ERROR', 'Difficulty must be Easy, Medium, or Hard');
+    }
+
+    const metrics = await analyticsService.getSuccessRateMetrics(
+      period as 'hourly' | 'daily',
+      timestamp as string,
+      difficulty as Difficulty
+    );
+
+    if (!metrics) {
+      return sendErrorResponse(res, 'NOT_FOUND', 'No metrics found for the specified parameters');
+    }
+
+    sendSuccessResponse(res, metrics);
+  })
+);
+
+/**
+ * GET /api/puzzle/analytics/completion-time?puzzleId=...
+ * Get completion time metrics for a specific puzzle
+ * Requirements: 11.5
+ */
+router.get(
+  '/analytics/completion-time',
+  asyncHandler(async (req, res) => {
+    const { puzzleId } = req.query;
+
+    if (!puzzleId) {
+      return sendErrorResponse(res, 'VALIDATION_ERROR', 'Puzzle ID is required');
+    }
+
+    const metrics = await analyticsService.getCompletionTimeMetrics(puzzleId as string);
+
+    if (!metrics) {
+      return sendErrorResponse(
+        res,
+        'NOT_FOUND',
+        'No completion metrics found for the specified puzzle'
+      );
+    }
+
+    sendSuccessResponse(res, metrics);
   })
 );
 

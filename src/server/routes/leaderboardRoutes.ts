@@ -18,14 +18,15 @@ import { LeaderboardService } from '../services/LeaderboardService.js';
 const router = Router();
 
 /**
- * GET /api/leaderboard/daily?date=YYYY-MM-DD&limit=10
- * Get the combined daily leaderboard for all difficulties
+ * GET /api/leaderboard/daily?date=YYYY-MM-DD&limit=10&difficulty=easy
+ * Get the daily leaderboard, optionally filtered by difficulty
  * Requirements: 11.5, 7.4, 7.5
  */
 router.get('/daily', async (req, res) => {
   try {
     const date = (req.query.date as string) || new Date().toISOString().split('T')[0];
     const limit = parseInt(req.query.limit as string) || 10;
+    const difficulty = req.query.difficulty as string;
 
     // Validate date format
     if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
@@ -53,8 +54,33 @@ router.get('/daily', async (req, res) => {
       return res.status(400).json(response);
     }
 
+    // Validate difficulty if provided
+    if (difficulty && !['easy', 'medium', 'hard'].includes(difficulty.toLowerCase())) {
+      const response: GetLeaderboardResponse = {
+        success: false,
+        error: {
+          type: 'INVALID_ANSWER',
+          message: 'Difficulty must be one of: easy, medium, hard',
+        },
+        timestamp: new Date(),
+      };
+      return res.status(400).json(response);
+    }
+
     const leaderboardService = LeaderboardService.getInstance();
-    const result = await leaderboardService.getDailyLeaderboard(date, limit);
+    let result;
+
+    if (difficulty) {
+      // Get difficulty-specific leaderboard
+      result = await leaderboardService.getDailyLeaderboardByDifficulty(
+        difficulty as Difficulty,
+        date,
+        limit
+      );
+    } else {
+      // Get combined leaderboard
+      result = await leaderboardService.getDailyLeaderboard(date, limit);
+    }
 
     const response: GetLeaderboardResponse = {
       success: true,

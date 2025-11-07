@@ -17,6 +17,7 @@ import puzzleRoutes from './routes/puzzleRoutes.js';
 import enhancedPuzzleRoutes from './routes/enhancedPuzzleRoutes.js';
 import leaderboardRoutes from './routes/leaderboardRoutes.js';
 import healthRoutes from './routes/healthRoutes.js';
+import completionCommentRoutes from './routes/completionCommentRoutes.js';
 
 const app = express();
 
@@ -206,6 +207,7 @@ router.post<{ postId: string }, DecrementResponse | { status: string; message: s
 router.use('/api/puzzle', puzzleRoutes);
 router.use('/api/puzzle', enhancedPuzzleRoutes); // Enhanced generation endpoints
 router.use('/api/leaderboard', leaderboardRoutes);
+router.use('/api/completion-comment', completionCommentRoutes); // Dedicated completion comment handler
 router.use('/api', healthRoutes);
 
 // Debug endpoint to test comment processing manually
@@ -445,13 +447,14 @@ router.post(
 
       for (const difficulty of difficulties) {
         try {
+          console.log(`[Mod Tool] Creating post for difficulty: ${difficulty}`);
           const post = await createPost('daily', [difficulty], difficulty);
           createdPosts.push({
             difficulty: difficulty.charAt(0).toUpperCase() + difficulty.slice(1),
             postId: post.id,
             url: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
           });
-          console.log(`Created ${difficulty} puzzle post: ${post.id}`);
+          console.log(`[Mod Tool] Created ${difficulty} puzzle post: ${post.id}`);
         } catch (error) {
           console.error(`Failed to create ${difficulty} puzzle post:`, error);
         }
@@ -536,7 +539,7 @@ router.post(
   '/internal/menu/leaderboard',
   async (_req, res: express.Response<UiResponse>): Promise<void> => {
     try {
-      console.log(`Leaderboard menu action triggered at ${new Date().toISOString()}`);
+      console.log(`Daily leaderboard menu action triggered at ${new Date().toISOString()}`);
 
       if (!context.subredditName) {
         res.json({
@@ -548,102 +551,97 @@ router.post(
         return;
       }
 
-      // Get today's date for the leaderboard
+      // Get today's date
       const today = new Date().toISOString().split('T')[0] as string;
+      console.log(`Fetching daily leaderboard for date: ${today}`);
 
       // Get leaderboard service
       const leaderboardService = LeaderboardService.getInstance();
 
       // Get daily leaderboard data
-      const leaderboardResult = await leaderboardService.getDailyLeaderboard(today, 10);
+      const leaderboardResult = await leaderboardService.getDailyLeaderboard(today, 50);
+      console.log(`Leaderboard result:`, {
+        totalPlayers: leaderboardResult.totalPlayers,
+        entriesCount: leaderboardResult.entries.length,
+        entries: leaderboardResult.entries.map((e) => ({
+          username: e.username,
+          score: e.score,
+          difficulty: e.difficulty,
+        })),
+      });
+
+      const stats = await leaderboardService.getLeaderboardStats(today);
 
       if (!leaderboardResult.entries || leaderboardResult.entries.length === 0) {
         console.log(`No leaderboard data available for ${today}`);
 
-        // Create an empty leaderboard custom post with fallback data
-        const emptyLeaderboardData = {
-          type: 'leaderboard' as const,
-          leaderboardType: 'daily' as const,
-          date: today,
-          entries: [], // Empty entries array
-          stats: {
-            totalPlayers: 0,
-            totalSubmissions: 0,
-            fastestTime: 'N/A',
-            topScore: 0,
-            puzzleStats: {
-              easy: 0,
-              medium: 0,
-              hard: 0,
-            },
-          },
-        };
-
-        // Create the custom leaderboard post using the enhanced function
-        const post = await createLeaderboardPost(emptyLeaderboardData, 'daily');
-
-        console.log(`Empty leaderboard custom post created: ${post.id}`);
-
         res.json({
           showToast: {
-            text: 'Interactive leaderboard posted! Be the first to play today!',
-            appearance: 'success',
+            text: `No leaderboard data found for ${today}`,
+            appearance: 'neutral',
           },
-          navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
         });
         return;
       }
 
-      const entries = leaderboardResult.entries;
-
-      // Get leaderboard statistics
-      const stats = await leaderboardService.getLeaderboardStats(today);
-
-      // Prepare leaderboard data for the custom post
+      // Create leaderboard data structure
       const leaderboardData = {
-        type: 'leaderboard',
-        leaderboardType: 'daily',
+        type: 'leaderboard' as const,
+        leaderboardType: 'daily' as const,
         date: today,
-        entries: entries.map((entry, index) => ({
+        difficulty: 'all',
+        entries: leaderboardResult.entries.map((entry, index) => ({
           rank: index + 1,
           username: entry.username,
-          time: `${Math.floor(entry.time / 60)}:${(entry.time % 60).toString().padStart(2, '0')}`,
+          time:
+            typeof entry.time === 'number'
+              ? `${Math.floor(entry.time / 60)}:${(entry.time % 60).toString().padStart(2, '0')}`
+              : entry.time,
           difficulty: entry.difficulty.toLowerCase(),
           hintsUsed: entry.hints,
           score: entry.score,
         })),
         stats: {
-          totalPlayers: stats.dailyPlayers,
+          totalPlayers: leaderboardResult.totalPlayers,
           totalSubmissions: stats.totalSubmissions,
           fastestTime:
-            entries.length > 0
-              ? `${Math.floor(entries[0].time / 60)}:${(entries[0].time % 60).toString().padStart(2, '0')}`
+            leaderboardResult.entries.length > 0
+              ? typeof leaderboardResult.entries[0].time === 'number'
+                ? `${Math.floor(leaderboardResult.entries[0].time / 60)}:${(leaderboardResult.entries[0].time % 60).toString().padStart(2, '0')}`
+                : leaderboardResult.entries[0].time
               : 'N/A',
-          topScore: entries.length > 0 ? entries[0].score : 0,
+          topScore: leaderboardResult.entries.length > 0 ? leaderboardResult.entries[0].score : 0,
           puzzleStats: stats.puzzleStats,
         },
       };
 
-      // Create a custom post with leaderboard data using the enhanced function
-      const post = await createLeaderboardPost(leaderboardData as any, 'daily');
+      // Create interactive leaderboard post using the proper createLeaderboardPost function
+      try {
+        const post = await createLeaderboardPost(leaderboardData, 'daily');
 
-      console.log(`Interactive leaderboard post created successfully: ${post.id}`);
+        console.log(`Created interactive daily leaderboard post: ${post.id}`);
 
-      // Return success response with navigation
-      res.json({
-        showToast: {
-          text: `Interactive leaderboard posted! ${entries.length} players featured.`,
-          appearance: 'success',
-        },
-        navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
-      });
+        res.json({
+          showToast: {
+            text: `✅ Interactive daily leaderboard created! (${leaderboardResult.totalPlayers} players)`,
+            appearance: 'success',
+          },
+          navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
+        });
+      } catch (postError) {
+        console.error('Error creating interactive leaderboard post:', postError);
+        res.json({
+          showToast: {
+            text: 'Failed to create interactive leaderboard post',
+            appearance: 'neutral',
+          },
+        });
+      }
     } catch (error) {
-      console.error(`Error creating leaderboard post: ${error}`);
-
-      // Return error toast
+      console.error('Error in daily leaderboard menu action:', error);
       res.json({
         showToast: {
-          text: 'Failed to create leaderboard post. Please try again.',
+          text: 'Failed to create daily leaderboard',
           appearance: 'neutral',
         },
       });
@@ -651,6 +649,7 @@ router.post(
   }
 );
 
+// Weekly leaderboard menu action
 // Weekly leaderboard menu action
 router.post(
   '/internal/menu/weekly-leaderboard',
@@ -691,33 +690,45 @@ router.post(
         };
       } = {};
 
+      let totalDaysWithData = 0;
+
       // Collect data for each day of the week
       for (let d = new Date(weekStart); d <= weekEnd; d.setDate(d.getDate() + 1)) {
         const dateStr = d.toISOString().split('T')[0];
 
         try {
-          const dailyLeaderboard = await leaderboardService.getDailyLeaderboard(dateStr, 50); // Get more entries for aggregation
+          const dailyLeaderboard = await leaderboardService.getDailyLeaderboard(dateStr, 100);
 
-          for (const entry of dailyLeaderboard.entries) {
-            if (!weeklyData[entry.username]) {
-              weeklyData[entry.username] = {
-                totalScore: 0,
-                puzzlesSolved: 0,
-                bestTime: entry.time,
-                difficulties: new Set(),
-              };
+          if (dailyLeaderboard.entries && dailyLeaderboard.entries.length > 0) {
+            totalDaysWithData++;
+
+            for (const entry of dailyLeaderboard.entries) {
+              if (!weeklyData[entry.username]) {
+                weeklyData[entry.username] = {
+                  totalScore: 0,
+                  puzzlesSolved: 0,
+                  bestTime: Infinity,
+                  difficulties: new Set(),
+                };
+              }
+
+              weeklyData[entry.username].totalScore += entry.score;
+              weeklyData[entry.username].puzzlesSolved += 1;
+
+              const entryTime =
+                typeof entry.time === 'number'
+                  ? entry.time
+                  : parseInt(entry.time.split(':')[0]) * 60 + parseInt(entry.time.split(':')[1]);
+
+              weeklyData[entry.username].bestTime = Math.min(
+                weeklyData[entry.username].bestTime,
+                entryTime
+              );
+              weeklyData[entry.username].difficulties.add(entry.difficulty);
             }
-
-            weeklyData[entry.username].totalScore += entry.score;
-            weeklyData[entry.username].puzzlesSolved += 1;
-            weeklyData[entry.username].bestTime = Math.min(
-              weeklyData[entry.username].bestTime,
-              entry.time
-            );
-            weeklyData[entry.username].difficulties.add(entry.difficulty);
           }
         } catch (error) {
-          console.warn(`Failed to get daily leaderboard for ${dateStr}:`, error);
+          console.warn(`Failed to get leaderboard for ${dateStr}:`, error);
         }
       }
 
@@ -727,174 +738,100 @@ router.post(
           username,
           totalScore: data.totalScore,
           puzzlesSolved: data.puzzlesSolved,
-          bestTime: data.bestTime,
-          avgDifficulty: Array.from(data.difficulties).join(', '),
+          bestTime: data.bestTime === Infinity ? 0 : data.bestTime,
+          difficulties: Array.from(data.difficulties),
+          averageScore: Math.round(data.totalScore / data.puzzlesSolved),
         }))
         .sort((a, b) => b.totalScore - a.totalScore)
-        .slice(0, 15); // Top 15 for weekly
+        .slice(0, 50)
+        .map((entry, index) => ({
+          rank: index + 1,
+          username: entry.username,
+          time: `${Math.floor(entry.bestTime / 60)}:${(entry.bestTime % 60).toString().padStart(2, '0')}`,
+          difficulty: entry.difficulties.length > 1 ? 'mixed' : entry.difficulties[0] || 'mixed',
+          hintsUsed: 0,
+          score: entry.totalScore,
+          puzzlesSolved: entry.puzzlesSolved,
+          averageScore: entry.averageScore,
+        }));
 
       if (weeklyEntries.length === 0) {
         console.log(`No weekly leaderboard data available for week ${weekStartStr}`);
 
-        // Create an empty weekly leaderboard custom post
-        const emptyWeeklyData = {
-          type: 'leaderboard' as const,
-          leaderboardType: 'weekly' as const,
-          date: weekStartStr,
-          weekStart: weekStartStr,
-          weekEnd: weekEndStr,
-          entries: [], // Empty entries array
-          stats: {
-            totalPlayers: 0,
-            totalSubmissions: 0,
-            fastestTime: 'N/A',
-            topScore: 0,
-            puzzleStats: {
-              easy: 0,
-              medium: 0,
-              hard: 0,
-            },
-          },
-        };
-
-        // Create the custom weekly leaderboard post
-        const post = await createLeaderboardPost(emptyWeeklyData, 'weekly');
-
-        console.log(`Empty weekly leaderboard custom post created: ${post.id}`);
-
         res.json({
           showToast: {
-            text: 'Interactive weekly leaderboard posted! Be the first to compete this week!',
-            appearance: 'success',
+            text: `No weekly leaderboard data found for this week`,
+            appearance: 'neutral',
           },
-          navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
         });
         return;
       }
 
-      // Format weekly leaderboard as Reddit post content
-      let postContent = `# 🏆 ReflectIQ Weekly Leaderboard
+      // Create weekly leaderboard data structure
+      const totalPuzzlesSolved = weeklyEntries.reduce(
+        (sum, entry) => sum + (entry.puzzlesSolved || 0),
+        0
+      );
+      const averageScore =
+        weeklyEntries.length > 0
+          ? Math.round(
+              weeklyEntries.reduce((sum, entry) => sum + entry.score, 0) / weeklyEntries.length
+            )
+          : 0;
 
-**Week of ${weekStartStr} to ${weekEndStr}**
-
-**This Week's Top Puzzle Masters!** 🎯
-
-## 📊 Weekly Statistics:
-- **Active Players:** ${weeklyEntries.length}
-- **Total Puzzles Solved:** ${weeklyEntries.reduce((sum, entry) => sum + entry.puzzlesSolved, 0)}
-- **Average Score:** ${weeklyEntries.length > 0 ? Math.round(weeklyEntries.reduce((sum, entry) => sum + entry.totalScore, 0) / weeklyEntries.length) : 0}
-
-## 🥇 Top 15 Weekly Performers:
-
-| Rank | Player | Total Score | Puzzles Solved | Best Time | Difficulties |
-|------|--------|-------------|----------------|-----------|--------------|`;
-
-      weeklyEntries.forEach((entry, index) => {
-        const rank = index + 1;
-        const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : `${rank}.`;
-        const bestTimeFormatted = `${Math.floor(entry.bestTime / 60)}:${(entry.bestTime % 60).toString().padStart(2, '0')}`;
-
-        postContent += `\n| ${medal} | u/${entry.username} | ${entry.totalScore} | ${entry.puzzlesSolved} | ${bestTimeFormatted} | ${entry.avgDifficulty} |`;
-      });
-
-      postContent += `
-
----
-
-## 🎯 Weekly Competition Rules:
-- **Play Daily:** Each day's puzzle contributes to your weekly total
-- **Multiple Difficulties:** Try Easy, Medium, and Hard for variety
-- **Consistency Wins:** Regular play beats occasional high scores
-- **Speed Matters:** Faster completion times boost your ranking
-
-## 💡 Weekly Strategy Tips:
-- **Start Early:** More days = more opportunities to score
-- **Mix Difficulties:** Don't stick to just one level
-- **Learn from Mistakes:** Each puzzle teaches new techniques
-- **Use Hints Wisely:** Sometimes a small penalty beats getting stuck
-
-## 🔄 Weekly Reset:
-The weekly leaderboard resets every Sunday. New week, new chances to climb to the top!
-
-*Keep playing daily puzzles to maintain your weekly ranking!* ⚡🏆`;
-
-      // Prepare weekly leaderboard data for the custom post
       const weeklyLeaderboardData = {
-        type: 'leaderboard',
-        leaderboardType: 'weekly',
-        weekStart: weekStartStr,
-        weekEnd: weekEndStr,
-        entries: weeklyEntries.map((entry, index) => ({
-          rank: index + 1,
-          username: entry.username,
-          totalScore: entry.totalScore,
-          puzzlesSolved: entry.puzzlesSolved,
-          bestTime: `${Math.floor(entry.bestTime / 60)}:${(entry.bestTime % 60).toString().padStart(2, '0')}`,
-          avgDifficulty: entry.avgDifficulty,
-        })),
-        stats: {
-          activePlayersCount: weeklyEntries.length,
-          totalPuzzlesSolved: weeklyEntries.reduce((sum, entry) => sum + entry.puzzlesSolved, 0),
-          averageScore:
-            weeklyEntries.length > 0
-              ? Math.round(
-                  weeklyEntries.reduce((sum, entry) => sum + entry.totalScore, 0) /
-                    weeklyEntries.length
-                )
-              : 0,
-        },
-      };
-
-      // Create the weekly leaderboard post using the enhanced function
-      const weeklyPostData = {
         type: 'leaderboard' as const,
         leaderboardType: 'weekly' as const,
-        date: weekStartStr,
+        date: weekStartStr, // Required by LeaderboardPostData interface
         weekStart: weekStartStr,
         weekEnd: weekEndStr,
-        entries: weeklyEntries.map((entry, index) => ({
-          rank: index + 1,
-          username: entry.username,
-          time: `${Math.floor(entry.bestTime / 60)}:${(entry.bestTime % 60).toString().padStart(2, '0')}`,
-          difficulty: 'mixed' as unknown, // Weekly shows mixed difficulties
-          hintsUsed: 0, // Not tracked for weekly
-          score: entry.totalScore,
-        })),
+        difficulty: 'all',
+        entries: weeklyEntries,
         stats: {
           totalPlayers: weeklyEntries.length,
-          totalSubmissions: weeklyEntries.reduce((sum, entry) => sum + entry.puzzlesSolved, 0),
-          fastestTime:
-            weeklyEntries.length > 0
-              ? `${Math.floor(weeklyEntries[0].bestTime / 60)}:${(weeklyEntries[0].bestTime % 60).toString().padStart(2, '0')}`
-              : 'N/A',
-          topScore: weeklyEntries.length > 0 ? weeklyEntries[0].totalScore : 0,
+          totalSubmissions: totalPuzzlesSolved,
+          fastestTime: weeklyEntries.length > 0 ? weeklyEntries[0].time : 'N/A',
+          topScore: weeklyEntries.length > 0 ? weeklyEntries[0].score : 0,
+          daysWithData: totalDaysWithData,
+          // Add fields expected by InteractiveLeaderboard component
+          activePlayersCount: weeklyEntries.length,
+          totalPuzzlesSolved: totalPuzzlesSolved,
+          averageScore: averageScore,
           puzzleStats: {
-            easy: 0, // Not tracked separately for weekly
+            easy: 0,
             medium: 0,
             hard: 0,
           },
         },
       };
 
-      const post = await createLeaderboardPost(weeklyPostData, 'weekly');
+      // Create interactive weekly leaderboard post using the proper createLeaderboardPost function
+      try {
+        const post = await createLeaderboardPost(weeklyLeaderboardData, 'weekly');
 
-      console.log(`Interactive weekly leaderboard post created successfully: ${post.id}`);
+        console.log(`Created interactive weekly leaderboard post: ${post.id}`);
 
-      // Return success response with navigation
-      res.json({
-        showToast: {
-          text: `Interactive weekly leaderboard posted! ${weeklyEntries.length} players featured.`,
-          appearance: 'success',
-        },
-        navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
-      });
+        res.json({
+          showToast: {
+            text: `✅ Interactive weekly leaderboard created! (${weeklyEntries.length} players, ${totalDaysWithData} days of data)`,
+            appearance: 'success',
+          },
+          navigateTo: `https://reddit.com/r/${context.subredditName}/comments/${post.id}`,
+        });
+      } catch (postError) {
+        console.error('Error creating interactive weekly leaderboard post:', postError);
+        res.json({
+          showToast: {
+            text: 'Failed to create interactive weekly leaderboard post',
+            appearance: 'neutral',
+          },
+        });
+      }
     } catch (error) {
-      console.error(`Error creating weekly leaderboard post: ${error}`);
-
-      // Return error toast
+      console.error('Error in weekly leaderboard menu action:', error);
       res.json({
         showToast: {
-          text: 'Failed to create weekly leaderboard post. Please try again.',
+          text: 'Failed to create weekly leaderboard',
           appearance: 'neutral',
         },
       });
@@ -1408,26 +1345,47 @@ router.post('/internal/scheduler/post-daily-puzzle', async (_req, res): Promise<
       throw new Error('Subreddit name not available in context');
     }
 
-    // Create interactive custom posts for each difficulty level
+    // Create separate interactive custom posts for each difficulty level
     const availableDifficulties = puzzleStats.difficulties as ('easy' | 'medium' | 'hard')[];
+    const createdPosts: Array<{ difficulty: string; postId: string }> = [];
 
     try {
-      // Create a single post with all available difficulties
-      const post = await createPost('daily', availableDifficulties);
+      // Create separate posts for each difficulty
+      for (const difficulty of availableDifficulties) {
+        try {
+          console.log(`Creating post for difficulty: ${difficulty}`);
+          const post = await createPost('daily', [difficulty], difficulty);
+          createdPosts.push({
+            difficulty: difficulty.charAt(0).toUpperCase() + difficulty.slice(1),
+            postId: post.id,
+          });
+          console.log(`Successfully posted ${difficulty} puzzle for ${today}: ${post.id}`);
 
-      console.log(`Successfully posted daily puzzle for ${today}: ${post.id}`);
+          // Add small delay between posts to avoid rate limiting
+          await new Promise((resolve) => setTimeout(resolve, 1000));
+        } catch (difficultyPostError) {
+          console.error(`Failed to create ${difficulty} post:`, difficultyPostError);
+          // Continue with other difficulties even if one fails
+        }
+      }
+
+      if (createdPosts.length === 0) {
+        throw new Error('Failed to create any puzzle posts');
+      }
+
+      console.log(`Successfully posted ${createdPosts.length} daily puzzle posts for ${today}`);
 
       const executionTime = Date.now() - startTime;
       res.json({
         status: 'success',
-        message: 'Daily puzzle posted successfully',
+        message: `${createdPosts.length} daily puzzle posts created successfully`,
         date: today,
-        postId: post.id,
+        posts: createdPosts,
         puzzleStats,
         executionTime,
       });
     } catch (postError) {
-      console.error('Failed to submit daily puzzle post:', postError);
+      console.error('Failed to submit daily puzzle posts:', postError);
       throw new Error(
         `Reddit post submission failed: ${postError instanceof Error ? postError.message : 'Unknown error'}`
       );
@@ -1460,6 +1418,194 @@ router.post('/internal/scheduler/post-daily-puzzle', async (_req, res): Promise<
       error: error instanceof Error ? error.message : 'Unknown error',
       executionTime,
       date: new Date().toISOString().split('T')[0],
+    });
+  }
+});
+
+// Weekly leaderboard scheduler - runs every Sunday night
+router.post('/internal/scheduler/post-weekly-leaderboard', async (_req, res): Promise<void> => {
+  try {
+    const startTime = Date.now();
+    console.log(`Weekly leaderboard posting triggered at ${new Date().toISOString()}`);
+
+    // Get last week's date range (Sunday to Saturday)
+    const today = new Date();
+    const lastSunday = new Date(today);
+    lastSunday.setDate(today.getDate() - today.getDay() - 7); // Last Sunday
+    const lastSaturday = new Date(lastSunday);
+    lastSaturday.setDate(lastSunday.getDate() + 6); // Last Saturday
+
+    const weekStartStr = lastSunday.toISOString().split('T')[0] as string;
+    const weekEndStr = lastSaturday.toISOString().split('T')[0] as string;
+
+    console.log(`Generating weekly leaderboard for ${weekStartStr} to ${weekEndStr}`);
+
+    const leaderboardService = LeaderboardService.getInstance();
+
+    // Aggregate weekly data by collecting daily leaderboards
+    const weeklyData: {
+      [username: string]: {
+        totalScore: number;
+        puzzlesSolved: number;
+        bestTime: number;
+        difficulties: Set<string>;
+      };
+    } = {};
+
+    let totalDaysWithData = 0;
+
+    // Collect data for each day of the week
+    for (let d = new Date(lastSunday); d <= lastSaturday; d.setDate(d.getDate() + 1)) {
+      const dateStr = d.toISOString().split('T')[0];
+
+      try {
+        const dailyLeaderboard = await leaderboardService.getDailyLeaderboard(dateStr, 100);
+
+        if (dailyLeaderboard.entries && dailyLeaderboard.entries.length > 0) {
+          totalDaysWithData++;
+
+          for (const entry of dailyLeaderboard.entries) {
+            if (!weeklyData[entry.username]) {
+              weeklyData[entry.username] = {
+                totalScore: 0,
+                puzzlesSolved: 0,
+                bestTime: Infinity,
+                difficulties: new Set(),
+              };
+            }
+
+            weeklyData[entry.username].totalScore += entry.score;
+            weeklyData[entry.username].puzzlesSolved += 1;
+
+            const entryTime =
+              typeof entry.time === 'number'
+                ? entry.time
+                : parseInt(entry.time.split(':')[0]) * 60 + parseInt(entry.time.split(':')[1]);
+
+            weeklyData[entry.username].bestTime = Math.min(
+              weeklyData[entry.username].bestTime,
+              entryTime
+            );
+            weeklyData[entry.username].difficulties.add(entry.difficulty);
+          }
+        }
+      } catch (error) {
+        console.warn(`Failed to get leaderboard for ${dateStr}:`, error);
+      }
+    }
+
+    // Convert to sorted array
+    const weeklyEntries = Object.entries(weeklyData)
+      .map(([username, data]) => ({
+        username,
+        totalScore: data.totalScore,
+        puzzlesSolved: data.puzzlesSolved,
+        bestTime: data.bestTime === Infinity ? 0 : data.bestTime,
+        difficulties: Array.from(data.difficulties),
+        averageScore: Math.round(data.totalScore / data.puzzlesSolved),
+      }))
+      .sort((a, b) => b.totalScore - a.totalScore)
+      .slice(0, 50)
+      .map((entry, index) => ({
+        rank: index + 1,
+        username: entry.username,
+        time: `${Math.floor(entry.bestTime / 60)}:${(entry.bestTime % 60).toString().padStart(2, '0')}`,
+        difficulty: entry.difficulties.length > 1 ? 'mixed' : entry.difficulties[0] || 'mixed',
+        hintsUsed: 0,
+        score: entry.totalScore,
+        puzzlesSolved: entry.puzzlesSolved,
+        averageScore: entry.averageScore,
+      }));
+
+    if (weeklyEntries.length === 0) {
+      console.log(`No weekly leaderboard data available for week ${weekStartStr}`);
+      res.json({
+        status: 'success',
+        message: 'No weekly data available, skipping post',
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        executionTime: Date.now() - startTime,
+      });
+      return;
+    }
+
+    // Create weekly leaderboard data structure
+    const totalPuzzlesSolved = weeklyEntries.reduce(
+      (sum, entry) => sum + (entry.puzzlesSolved || 0),
+      0
+    );
+    const averageScore =
+      weeklyEntries.length > 0
+        ? Math.round(
+            weeklyEntries.reduce((sum, entry) => sum + entry.score, 0) / weeklyEntries.length
+          )
+        : 0;
+
+    const weeklyLeaderboardData = {
+      type: 'leaderboard' as const,
+      leaderboardType: 'weekly' as const,
+      date: weekStartStr, // Required by LeaderboardPostData interface
+      weekStart: weekStartStr,
+      weekEnd: weekEndStr,
+      entries: weeklyEntries,
+      stats: {
+        totalPlayers: weeklyEntries.length,
+        totalSubmissions: totalPuzzlesSolved,
+        fastestTime: weeklyEntries.length > 0 ? weeklyEntries[0].time : 'N/A',
+        topScore: weeklyEntries.length > 0 ? weeklyEntries[0].score : 0,
+        daysWithData: totalDaysWithData,
+        // Add fields expected by InteractiveLeaderboard component
+        activePlayersCount: weeklyEntries.length,
+        totalPuzzlesSolved: totalPuzzlesSolved,
+        averageScore: averageScore,
+        puzzleStats: {
+          easy: 0,
+          medium: 0,
+          hard: 0,
+        },
+      },
+    };
+
+    // Get subreddit name from context or use fallback for scheduler
+    const subredditName = context.subredditName || 'reflectiq_dev';
+
+    if (!subredditName) {
+      throw new Error('Subreddit name not available in context');
+    }
+
+    // Create the weekly leaderboard post
+    try {
+      const post = await createLeaderboardPost(weeklyLeaderboardData, 'weekly');
+
+      console.log(`Successfully posted weekly leaderboard: ${post.id}`);
+
+      const executionTime = Date.now() - startTime;
+      res.json({
+        status: 'success',
+        message: 'Weekly leaderboard posted successfully',
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        postId: post.id,
+        playersCount: weeklyEntries.length,
+        puzzlesSolved: totalPuzzlesSolved,
+        daysWithData: totalDaysWithData,
+        executionTime,
+      });
+    } catch (postError) {
+      console.error('Failed to submit weekly leaderboard post:', postError);
+      throw new Error(
+        `Reddit post submission failed: ${postError instanceof Error ? postError.message : 'Unknown error'}`
+      );
+    }
+  } catch (error) {
+    const executionTime = Date.now() - (Date.now() - 1000); // Approximate
+    console.error(`Error posting weekly leaderboard: ${error}`);
+
+    res.status(500).json({
+      status: 'error',
+      message: 'Failed to post weekly leaderboard',
+      error: error instanceof Error ? error.message : 'Unknown error',
+      executionTime,
     });
   }
 });
@@ -1688,7 +1834,7 @@ router.post('/api/debug/manual-comment', async (req, res): Promise<void> => {
     // Process the comment using the same logic as the trigger
     const triggerReq = {
       body: commentData,
-    } as any;
+    } as unknown;
 
     const triggerRes = {
       json: (data: unknown) => {
@@ -1865,7 +2011,7 @@ router.post('/api/debug/test-comment', async (req, res): Promise<void> => {
     // Try all difficulties to find which puzzle this answer is for
     const difficulties = ['Easy', 'Medium', 'Hard'] as const;
     let processedSubmission = false;
-    let debugInfo: unknown = {};
+    const debugInfo: unknown = {};
 
     for (const difficulty of difficulties) {
       try {
@@ -2036,7 +2182,7 @@ router.post('/api/debug/process-comment', async (req, res): Promise<void> => {
 
     // Check all difficulties
     const difficulties = ['Easy', 'Medium', 'Hard'] as const;
-    let debugInfo: unknown = {};
+    const debugInfo: unknown = {};
     let processedSubmission = false;
 
     for (const difficulty of difficulties) {

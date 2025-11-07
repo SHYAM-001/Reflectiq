@@ -204,13 +204,14 @@ class ApiService {
   }
 
   /**
-   * Get daily leaderboard
+   * Get daily leaderboard with optional difficulty filtering
    */
-  async getDailyLeaderboard(date?: string, limit: number = 10) {
+  async getDailyLeaderboard(date?: string, limit: number = 10, difficulty?: Difficulty) {
     try {
       const params = new URLSearchParams();
       if (date) params.append('date', date);
-      if (limit) params.append('limit', limit.toString());
+      if (difficulty) params.append('difficulty', difficulty);
+      params.append('limit', limit.toString());
 
       const response = await fetch(`/api/leaderboard/daily?${params.toString()}`, {
         method: 'GET',

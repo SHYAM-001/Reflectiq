@@ -86,15 +86,10 @@ export class CacheManager {
     try {
       logger.info('Initializing cache manager');
 
-      // Initial cache warmup
-      if (this.config.enableSmartCaching) {
-        try {
-          await this.performInitialWarmup();
-        } catch (error) {
-          logger.warn('Initial cache warmup failed during initialization', { error });
-          // Don't fail initialization due to warmup errors
-        }
-      }
+      // Note: Initial cache warmup is disabled for Devvit compatibility
+      // Redis operations can only be performed within request context
+      // Caches will be populated lazily during actual requests
+      logger.info('Cache manager initialized - warmup disabled for Devvit compatibility');
 
       // Start background tasks
       this.startBackgroundTasks();
@@ -329,17 +324,9 @@ export class CacheManager {
       return;
     }
 
-    // Cache warmup task
-    this.warmupTimer = setInterval(
-      async () => {
-        try {
-          await this.warmupCaches();
-        } catch (error) {
-          logger.error('Scheduled cache warmup failed', { error });
-        }
-      },
-      this.config.cacheWarmupInterval * 60 * 1000
-    );
+    // Note: Cache warmup task is disabled for Devvit compatibility
+    // Redis operations can only be performed within request context
+    logger.info('Background cache warmup disabled for Devvit compatibility');
 
     // Metrics aggregation task
     this.aggregationTimer = setInterval(

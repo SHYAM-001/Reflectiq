@@ -78,6 +78,19 @@ export interface SubmitAnswerResponse
     scoreResult: ScoreResult;
     submission: Submission;
     leaderboardPosition?: number;
+    commentPosting?: {
+      success: boolean;
+      error?: string;
+      type?: 'completion' | 'encouragement';
+    };
+    message?: string;
+    isRepeatAttempt?: boolean;
+    originalCompletion?: {
+      timeTaken: number;
+      score: number;
+      hintsUsed: number;
+      completedAt: Date;
+    };
   }> {}
 
 // GET /api/leaderboard/daily
@@ -172,3 +185,67 @@ export interface CommentSubmitTrigger {
   body: string;
   parentId?: string;
 }
+
+// Analytics API Types
+
+// GET /api/puzzle/analytics/volume
+export interface GetVolumeMetricsRequest {
+  date: string; // YYYY-MM-DD format
+  difficulty: Difficulty;
+}
+
+export interface GetVolumeMetricsResponse
+  extends ApiResponse<
+    {
+      date: string;
+      hour: number;
+      totalSubmissions: number;
+      correctSubmissions: number;
+      incorrectSubmissions: number;
+      averageTime: number;
+      averageScore: number;
+      difficulty: Difficulty;
+    }[]
+  > {}
+
+// GET /api/puzzle/analytics/success-rate
+export interface GetSuccessRateMetricsRequest {
+  period: 'hourly' | 'daily';
+  timestamp: string;
+  difficulty: Difficulty;
+}
+
+export interface GetSuccessRateMetricsResponse
+  extends ApiResponse<{
+    period: 'hourly' | 'daily';
+    timestamp: string;
+    difficulty: Difficulty;
+    totalSubmissions: number;
+    successfulSubmissions: number;
+    successRate: number;
+    averageCompletionTime: number;
+    averageHintsUsed: number;
+  }> {}
+
+// GET /api/puzzle/analytics/completion-time
+export interface GetCompletionTimeMetricsRequest {
+  puzzleId: string;
+}
+
+export interface GetCompletionTimeMetricsResponse
+  extends ApiResponse<{
+    puzzleId: string;
+    difficulty: Difficulty;
+    fastestTime: number;
+    slowestTime: number;
+    averageTime: number;
+    medianTime: number;
+    totalCompletions: number;
+    timeDistribution: {
+      under30s: number;
+      under60s: number;
+      under120s: number;
+      under300s: number;
+      over300s: number;
+    };
+  }> {}

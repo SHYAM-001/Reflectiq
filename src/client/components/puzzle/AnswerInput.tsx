@@ -1,10 +1,16 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '../ui/button';
 import { Input } from '../ui/input';
 import { Target } from 'lucide-react';
 
 import { GridPosition } from '../../types/api';
 
+/**
+ * Props for the AnswerInput component
+ * @property gridSize - The size of the puzzle grid (used for validation)
+ * @property selectedAnswer - The currently selected answer position, or null if none selected
+ * @property onAnswerChange - Callback invoked when the answer changes (via typing, grid click, or button)
+ */
 interface AnswerInputProps {
   gridSize: number;
   selectedAnswer: GridPosition | null;
@@ -14,6 +20,36 @@ interface AnswerInputProps {
 export const AnswerInput = ({ gridSize, selectedAnswer, onAnswerChange }: AnswerInputProps) => {
   const [inputValue, setInputValue] = useState('');
 
+  /**
+   * Formats a GridPosition into a human-readable string (e.g., [0, 0] -> "A1").
+   * @param answer - The grid position to format
+   * @returns Formatted string in letter+number format
+   */
+  const formatAnswer = (answer: GridPosition): string => {
+    const letter = String.fromCharCode(65 + answer[0]);
+    const number = answer[1] + 1;
+    return `${letter}${number}`;
+  };
+
+  /**
+   * Synchronize input value with external selectedAnswer prop changes.
+   * This enables grid cell clicks to update the input box display.
+   */
+  useEffect(() => {
+    if (selectedAnswer) {
+      const formatted = formatAnswer(selectedAnswer);
+      setInputValue(formatted);
+    } else {
+      setInputValue('');
+    }
+  }, [selectedAnswer]);
+
+  /**
+   * Parses user input string into a GridPosition.
+   * Supports formats like "A1", "B5", "Exit: A1", etc.
+   * @param input - The user input string to parse
+   * @returns GridPosition tuple [row, col] if valid, null otherwise
+   */
   const parseAnswer = (input: string): GridPosition | null => {
     // Support formats like "A1", "B5", "Exit: A1", etc.
     const cleaned = input
@@ -40,19 +76,24 @@ export const AnswerInput = ({ gridSize, selectedAnswer, onAnswerChange }: Answer
     return [row, col];
   };
 
-  const formatAnswer = (answer: GridPosition): string => {
-    const letter = String.fromCharCode(65 + answer[0]);
-    const number = answer[1] + 1;
-    return `${letter}${number}`;
-  };
-
-  const handleInputChange = (value: string) => {
+  /**
+   * Handles manual input changes from the text field
+   * @param value - The new input value
+   * @returns void
+   */
+  const handleInputChange = (value: string): void => {
     setInputValue(value);
     const parsed = parseAnswer(value);
     onAnswerChange(parsed);
   };
 
-  const handleQuickSelect = (row: number, col: number) => {
+  /**
+   * Handles quick-select button clicks
+   * @param row - The row index of the selected cell
+   * @param col - The column index of the selected cell
+   * @returns void
+   */
+  const handleQuickSelect = (row: number, col: number): void => {
     const answer: GridPosition = [row, col];
     const formatted = formatAnswer(answer);
     setInputValue(formatted);
