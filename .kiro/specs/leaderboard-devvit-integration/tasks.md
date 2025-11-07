@@ -110,9 +110,32 @@
     - Ensure statistics are accurate for both filtered and combined views
     - _Requirements: 7.5_
 
-- [ ]\* 8. Add comprehensive testing
+- [ ] 8. Fix leaderboard post creation to use correct Devvit Web format
 
-  - [ ]\* 8.1 Create component tests for enhanced functionality
+  - [ ] 8.1 Update menu action endpoint to remove invalid preview field
+
+    - Remove the `preview: { type: 'custom', data: ... }` format from submitPost call
+    - Use only `postData` field to pass leaderboard data (Devvit Web automatically uses the webview)
+    - Ensure the post title clearly indicates it's an interactive leaderboard
+    - Test that the created post loads the React webview with leaderboard data
+    - _Requirements: 1.1, 1.2, 1.3, 1.4, 4.1_
+
+  - [ ] 8.2 Update scheduler endpoint to use correct post format
+
+    - Apply the same fix to `/internal/scheduler/post-leaderboard` endpoint
+    - Remove invalid preview field and rely on postData only
+    - Verify automated posts load correctly with leaderboard UI
+    - _Requirements: 5.1, 5.2, 5.3_
+
+  - [ ] 8.3 Verify client-side postData access
+    - Ensure `/api/post-context` endpoint correctly returns postData
+    - Verify Leaderboard component can access and parse postData
+    - Test the complete flow: post creation → data passing → UI rendering
+    - _Requirements: 2.1, 4.1, 4.2_
+
+- [ ]\* 9. Add comprehensive testing
+
+  - [ ]\* 9.1 Create component tests for enhanced functionality
 
     - Test Leaderboard component with postData, API data, and sample data
     - Test DifficultyBadge component with all difficulty levels and sizes
@@ -121,7 +144,7 @@
     - Test error handling and fallback scenarios
     - _Requirements: 2.1, 2.2, 3.1, 3.2, 3.3, 6.1, 7.1_
 
-  - [ ]\* 8.2 Create integration tests for menu actions and new features
+  - [ ]\* 9.2 Create integration tests for menu actions and new features
     - Test daily and weekly leaderboard creation through menu actions
     - Test postData flow from server to client components
     - Test automated scheduler integration with enhanced posts

@@ -210,7 +210,7 @@ export default function InteractiveLeaderboard({
             </>
           ) : (
             <>
-              <Card className="p-6 bg-card/50 backdrop-blur-sm border-primary/20 shadow-glow-primary">
+              {/* <Card className="p-6 bg-card/50 backdrop-blur-sm border-primary/20 shadow-glow-primary">
                 <div className="flex items-center gap-3">
                   <div className="p-3 bg-primary/10 rounded-lg">
                     <Timer className="w-6 h-6 text-primary" />
@@ -222,7 +222,7 @@ export default function InteractiveLeaderboard({
                     </p>
                   </div>
                 </div>
-              </Card>
+              </Card> */}
 
               <Card className="p-6 bg-card/50 backdrop-blur-sm border-laser/20 shadow-glow-laser">
                 <div className="flex items-center gap-3">

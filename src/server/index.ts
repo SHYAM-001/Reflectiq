@@ -614,18 +614,9 @@ router.post(
         },
       };
 
-      // Create interactive leaderboard post
+      // Create interactive leaderboard post using the proper createLeaderboardPost function
       try {
-        const title = `📊 Daily Leaderboard - ${today} (Interactive)`;
-
-        const post = await reddit.submitPost({
-          title,
-          subredditName: context.subredditName,
-          preview: {
-            type: 'custom',
-            data: leaderboardData,
-          },
-        });
+        const post = await createLeaderboardPost(leaderboardData, 'daily');
 
         console.log(`Created interactive daily leaderboard post: ${post.id}`);
 
@@ -800,18 +791,9 @@ router.post(
         },
       };
 
-      // Create interactive weekly leaderboard post
+      // Create interactive weekly leaderboard post using the proper createLeaderboardPost function
       try {
-        const title = `🏆 Weekly Leaderboard - ${weekStartStr} to ${weekEndStr} (Interactive)`;
-
-        const post = await reddit.submitPost({
-          title,
-          subredditName: context.subredditName,
-          preview: {
-            type: 'custom',
-            data: weeklyLeaderboardData,
-          },
-        });
+        const post = await createLeaderboardPost(weeklyLeaderboardData, 'weekly');
 
         console.log(`Created interactive weekly leaderboard post: ${post.id}`);
 

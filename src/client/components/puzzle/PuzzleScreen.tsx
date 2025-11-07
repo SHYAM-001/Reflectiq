@@ -111,7 +111,7 @@ export const PuzzleScreen = ({
           <div className="text-sm text-foreground/80">
             {puzzle.difficulty} • {puzzle.gridSize}x{puzzle.gridSize}
           </div>
-          <PuzzleGenerationInfo puzzleId={puzzle.id} />
+          {/* <PuzzleGenerationInfo puzzleId={puzzle.id} /> */}
         </div>
 
         <div className="flex items-center gap-4">
