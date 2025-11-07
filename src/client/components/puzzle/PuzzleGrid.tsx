@@ -1,14 +1,41 @@
-import { Puzzle, HintPath, PathSegment } from '../../types/api';
+import { Puzzle, HintPath, PathSegment, GridPosition } from '../../types/api';
 import { GridCell } from './GridCell';
 import { useMemo, useState, useEffect } from 'react';
 
+/**
+ * Props for the PuzzleGrid component
+ * @property puzzle - The puzzle data containing grid size, materials, entry, and solution
+ * @property hintPaths - Array of hint paths to progressively reveal the laser path
+ * @property hintsUsed - Number of hints used so far (0-4)
+ * @property selectedAnswer - The currently selected answer position, or null if none selected
+ * @property onCellClick - Callback invoked when a grid cell is clicked
+ */
 interface PuzzleGridProps {
   puzzle: Puzzle;
   hintPaths: HintPath[];
   hintsUsed?: number;
+  selectedAnswer: GridPosition | null;
+  onCellClick: (row: number, col: number) => void;
 }
 
-export const PuzzleGrid = ({ puzzle, hintPaths, hintsUsed = 0 }: PuzzleGridProps) => {
+/**
+ * Helper function to determine if a cell is on the edge of the grid
+ * @param row - The row index of the cell
+ * @param col - The column index of the cell
+ * @param gridSize - The size of the grid
+ * @returns true if the cell is on the perimeter of the grid
+ */
+const isEdgeCell = (row: number, col: number, gridSize: number): boolean => {
+  return row === 0 || row === gridSize - 1 || col === 0 || col === gridSize - 1;
+};
+
+export const PuzzleGrid = ({
+  puzzle,
+  hintPaths,
+  hintsUsed = 0,
+  selectedAnswer,
+  onCellClick,
+}: PuzzleGridProps) => {
   const gridSize = puzzle.gridSize;
   const [animatingSegments, setAnimatingSegments] = useState<PathSegment[]>([]);
   const [visibleSegments, setVisibleSegments] = useState<PathSegment[]>([]);
@@ -96,6 +123,9 @@ export const PuzzleGrid = ({ puzzle, hintPaths, hintsUsed = 0 }: PuzzleGridProps
             const isExit =
               isSolutionFullyExposed && puzzle.solution[0] === row && puzzle.solution[1] === col;
             const isOnPath = isOnLaserPath(row, col);
+            const isEdge = isEdgeCell(row, col, gridSize);
+            const isSelected =
+              selectedAnswer !== null && selectedAnswer[0] === row && selectedAnswer[1] === col;
 
             return (
               <GridCell
@@ -106,6 +136,9 @@ export const PuzzleGrid = ({ puzzle, hintPaths, hintsUsed = 0 }: PuzzleGridProps
                 isEntry={isEntry}
                 isExit={isExit}
                 isOnLaserPath={isOnPath}
+                isEdgeCell={isEdge}
+                isSelected={isSelected}
+                onCellClick={onCellClick}
               />
             );
           })

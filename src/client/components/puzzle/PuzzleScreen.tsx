@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { Button } from '../ui/button';
 import { Timer } from './Timer';
 import { HintButton } from './HintButton';
@@ -9,6 +9,19 @@ import { Puzzle, SessionData, HintPath, GridPosition } from '../../types/api';
 import { Send } from 'lucide-react';
 import { toast } from 'sonner';
 
+/**
+ * Props for the PuzzleScreen component
+ * @property puzzle - The puzzle data to display
+ * @property session - The current session data
+ * @property hintsUsed - Number of hints used so far (0-4)
+ * @property hintPaths - Array of hint paths for progressive revelation
+ * @property isTimerRunning - Whether the puzzle timer is currently running
+ * @property isRequestingHint - Whether a hint request is in progress
+ * @property isSubmittingAnswer - Whether an answer submission is in progress
+ * @property onRequestHint - Callback to request a hint
+ * @property onSubmitAnswer - Callback to submit the answer with time taken
+ * @property onBack - Callback to navigate back to the previous screen
+ */
 interface PuzzleScreenProps {
   puzzle: Puzzle;
   session: SessionData;
@@ -36,7 +49,44 @@ export const PuzzleScreen = ({
   const [currentTime, setCurrentTime] = useState(0);
   const [selectedAnswer, setSelectedAnswer] = useState<GridPosition | null>(null);
 
-  const handleSubmit = async () => {
+  /**
+   * Handles cell click events from the PuzzleGrid component
+   * Validates that the clicked cell is within grid bounds before setting the answer
+   * @param row - The row index of the clicked cell (0-based)
+   * @param col - The column index of the clicked cell (0-based)
+   * @returns void
+   */
+  const handleCellClick = useCallback(
+    (row: number, col: number): void => {
+      // Validate bounds
+      if (row < 0 || row >= puzzle.gridSize || col < 0 || col >= puzzle.gridSize) {
+        console.warn(
+          `Invalid cell click: [${row}, ${col}] is out of bounds for grid size ${puzzle.gridSize}`
+        );
+        return;
+      }
+
+      const newAnswer: GridPosition = [row, col];
+      setSelectedAnswer(newAnswer);
+    },
+    [puzzle.gridSize]
+  );
+
+  /**
+   * Handles answer changes from the AnswerInput component
+   * @param answer - The selected GridPosition tuple [row, col] or null if cleared
+   * @returns void
+   */
+  const handleAnswerChange = useCallback((answer: GridPosition | null): void => {
+    setSelectedAnswer(answer);
+  }, []);
+
+  /**
+   * Handles answer submission
+   * Validates that an answer is selected before submitting
+   * @returns Promise<void>
+   */
+  const handleSubmit = async (): Promise<void> => {
     if (!selectedAnswer) {
       toast.error('Please select an exit cell first', {
         description: 'Click on a cell at the edge of the grid to select your answer',
@@ -76,7 +126,13 @@ export const PuzzleScreen = ({
 
       {/* Main Grid Area */}
       <div className="flex-1 flex items-center justify-center p-4">
-        <PuzzleGrid puzzle={puzzle} hintPaths={hintPaths} hintsUsed={hintsUsed} />
+        <PuzzleGrid
+          puzzle={puzzle}
+          hintPaths={hintPaths}
+          hintsUsed={hintsUsed}
+          selectedAnswer={selectedAnswer}
+          onCellClick={handleCellClick}
+        />
       </div>
 
       {/* Bottom Bar */}
@@ -84,7 +140,7 @@ export const PuzzleScreen = ({
         <AnswerInput
           gridSize={puzzle.gridSize}
           selectedAnswer={selectedAnswer}
-          onAnswerChange={setSelectedAnswer}
+          onAnswerChange={handleAnswerChange}
         />
 
         <div className="flex justify-center">
