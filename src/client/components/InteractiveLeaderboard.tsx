@@ -3,7 +3,8 @@ import { Button } from './ui/button';
 import { Card } from './ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from './ui/table';
 import { Badge } from './ui/badge';
-import { Trophy, Medal, Award, Timer, Target, Users, Calendar } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from './ui/select';
+import { Trophy, Medal, Award, Timer, Target, Users, Calendar, Filter } from 'lucide-react';
 
 interface LeaderboardEntry {
   rank: number;
@@ -81,18 +82,40 @@ export default function InteractiveLeaderboard({
   const [leaderboardData, setLeaderboardData] = useState<LeaderboardData | null>(postData || null);
   const [loading, setLoading] = useState(!postData);
   const [error, setError] = useState<string | null>(null);
+  const [selectedDifficulty, setSelectedDifficulty] = useState<'all' | 'easy' | 'medium' | 'hard'>(
+    'all'
+  );
+  const [filteredEntries, setFilteredEntries] = useState<LeaderboardEntry[]>([]);
 
   useEffect(() => {
     // If no post data provided, fetch from API
     if (!postData) {
-      fetchLeaderboardData(fallbackType);
+      void fetchLeaderboardData(fallbackType);
     }
   }, [postData, fallbackType]);
 
-  const fetchLeaderboardData = async (type: 'daily' | 'weekly') => {
+  useEffect(() => {
+    // Filter entries based on selected difficulty
+    if (leaderboardData) {
+      if (selectedDifficulty === 'all') {
+        setFilteredEntries(leaderboardData.entries);
+      } else {
+        const filtered = leaderboardData.entries.filter(
+          (entry) => entry.difficulty?.toLowerCase() === selectedDifficulty
+        );
+        setFilteredEntries(filtered);
+      }
+    }
+  }, [leaderboardData, selectedDifficulty]);
+
+  const fetchLeaderboardData = async (type: 'daily' | 'weekly', difficulty?: string) => {
     try {
       setLoading(true);
-      const response = await fetch(`/api/leaderboard-data/${type}`);
+      const url =
+        difficulty && difficulty !== 'all'
+          ? `/api/leaderboard-data/${type}?difficulty=${difficulty}`
+          : `/api/leaderboard-data/${type}`;
+      const response = await fetch(url);
       if (!response.ok) {
         throw new Error('Failed to fetch leaderboard data');
       }
@@ -102,6 +125,15 @@ export default function InteractiveLeaderboard({
       setError(err instanceof Error ? err.message : 'Failed to load leaderboard');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDifficultyChange = (value: string) => {
+    const difficulty = value as 'all' | 'easy' | 'medium' | 'hard';
+    setSelectedDifficulty(difficulty);
+    // Optionally refetch from server for more accurate stats
+    if (!postData) {
+      void fetchLeaderboardData(fallbackType, difficulty);
     }
   };
 
@@ -161,6 +193,47 @@ export default function InteractiveLeaderboard({
             {isWeekly ? 'Top performers across the week' : "Today's top puzzle solvers"}
           </p>
         </div>
+
+        {/* Difficulty Filter - Only show for daily leaderboards */}
+        {!isWeekly && (
+          <div className="mb-6 flex items-center justify-center gap-3">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Filter className="w-4 h-4" />
+              <span className="text-sm font-medium">Filter by difficulty:</span>
+            </div>
+            <Select value={selectedDifficulty} onValueChange={handleDifficultyChange}>
+              <SelectTrigger className="w-[180px] bg-card/50 backdrop-blur-sm border-border">
+                <SelectValue placeholder="Select difficulty" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">
+                  <div className="flex items-center gap-2">
+                    <span>🎯</span>
+                    <span>All Difficulties</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="easy">
+                  <div className="flex items-center gap-2">
+                    <span>🟢</span>
+                    <span>Easy</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="medium">
+                  <div className="flex items-center gap-2">
+                    <span>🟡</span>
+                    <span>Medium</span>
+                  </div>
+                </SelectItem>
+                <SelectItem value="hard">
+                  <div className="flex items-center gap-2">
+                    <span>🔴</span>
+                    <span>Hard</span>
+                  </div>
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
@@ -232,7 +305,9 @@ export default function InteractiveLeaderboard({
                   <div>
                     <p className="text-sm text-muted-foreground">Top Score</p>
                     <p className="text-2xl font-orbitron font-bold text-laser">
-                      {leaderboardData.stats.topScore?.toLocaleString() || 0}
+                      {filteredEntries.length > 0
+                        ? Math.max(...filteredEntries.map((e) => e.score)).toLocaleString()
+                        : 0}
                     </p>
                   </div>
                 </div>
@@ -244,9 +319,13 @@ export default function InteractiveLeaderboard({
                     <Users className="w-6 h-6 text-primary-light" />
                   </div>
                   <div>
-                    <p className="text-sm text-muted-foreground">Total Players</p>
+                    <p className="text-sm text-muted-foreground">
+                      {selectedDifficulty === 'all'
+                        ? 'Total Players'
+                        : `${selectedDifficulty.charAt(0).toUpperCase() + selectedDifficulty.slice(1)} Players`}
+                    </p>
                     <p className="text-2xl font-orbitron font-bold text-primary-light">
-                      {leaderboardData.stats.totalPlayers || 0}
+                      {filteredEntries.length}
                     </p>
                   </div>
                 </div>
@@ -295,7 +374,7 @@ export default function InteractiveLeaderboard({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {leaderboardData.entries.map((entry) => (
+                {filteredEntries.map((entry) => (
                   <TableRow
                     key={entry.rank}
                     className={`border-border transition-all duration-300 ${
