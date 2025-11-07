@@ -38,23 +38,42 @@ export const SubmissionScreen = ({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const isCorrect = scoreResult?.correct !== false;
+  const isWrongAnswer = scoreResult?.correct === false;
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-bg p-4">
       <div className="w-full max-w-md mx-auto space-y-6">
         {/* Header */}
         <div className="text-center space-y-4">
           <div className="flex justify-center">
-            <div className="w-16 h-16 rounded-full bg-green-500/20 flex items-center justify-center border border-green-500/30">
-              <CheckCircle className="h-8 w-8 text-green-500" />
+            <div
+              className={`w-16 h-16 rounded-full flex items-center justify-center border ${
+                isWrongAnswer
+                  ? 'bg-red-500/20 border-red-500/30'
+                  : 'bg-green-500/20 border-green-500/30'
+              }`}
+            >
+              {isWrongAnswer ? (
+                <Target className="h-8 w-8 text-red-500" />
+              ) : (
+                <CheckCircle className="h-8 w-8 text-green-500" />
+              )}
             </div>
           </div>
 
           <div>
-            <h1 className="font-montserrat font-bold text-2xl md:text-3xl text-green-500">
-              Time Stopped!
+            <h1
+              className={`font-montserrat font-bold text-2xl md:text-3xl ${
+                isWrongAnswer ? 'text-red-500' : 'text-green-500'
+              }`}
+            >
+              {isWrongAnswer ? 'Wrong Answer!' : 'Time Stopped!'}
             </h1>
             <p className="font-poppins text-foreground/70 text-sm md:text-base mt-2">
-              Now submit your answer as a Reddit comment
+              {isWrongAnswer
+                ? 'Trace the laser path carefully and try again'
+                : 'Now submit your answer as a Reddit comment'}
             </p>
           </div>
         </div>
@@ -71,7 +90,7 @@ export const SubmissionScreen = ({
           </div>
 
           {/* Score Display */}
-          {scoreResult && (
+          {scoreResult && isCorrect && (
             <div className="text-center space-y-2">
               <div className="text-3xl font-orbitron font-bold text-green-500">
                 {scoreResult.finalScore} points
@@ -84,6 +103,16 @@ export const SubmissionScreen = ({
                   </span>
                 </div>
               )}
+            </div>
+          )}
+
+          {/* Wrong Answer Display */}
+          {isWrongAnswer && (
+            <div className="text-center space-y-2">
+              <div className="text-2xl font-orbitron font-bold text-red-500">Incorrect</div>
+              <p className="text-sm text-foreground/70">
+                Check mirror reflections and material interactions
+              </p>
             </div>
           )}
 
@@ -102,8 +131,8 @@ export const SubmissionScreen = ({
             </div>
           </div>
 
-          {/* Score Breakdown */}
-          {scoreResult && (
+          {/* Score Breakdown - Only show for correct answers */}
+          {scoreResult && isCorrect && (
             <div className="border-t border-border/30 pt-4 space-y-3">
               <div className="text-center text-sm font-semibold text-foreground/80">
                 Score Breakdown
@@ -128,11 +157,31 @@ export const SubmissionScreen = ({
               </div>
             </div>
           )}
+
+          {/* Helpful Tips for Wrong Answers */}
+          {isWrongAnswer && (
+            <div className="border-t border-border/30 pt-4 space-y-3">
+              <div className="text-center text-sm font-semibold text-foreground/80">
+                💡 Helpful Tips
+              </div>
+              <div className="space-y-2 text-sm text-foreground/70">
+                {hintsUsed === 0 && <p>• Use hints to reveal parts of the laser path</p>}
+                {hintsUsed > 0 && hintsUsed < 3 && (
+                  <p>• Use additional hints to see more of the laser path</p>
+                )}
+                {hintsUsed >= 3 && (
+                  <p>• The laser path is mostly revealed - check the final exit carefully</p>
+                )}
+                <p>• Check how mirrors reflect the laser at 90° angles</p>
+                <p>• Remember that different materials affect the laser differently</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Actions */}
         <div className="flex flex-col gap-3">
-          {onViewLeaderboard && (
+          {isCorrect && onViewLeaderboard && (
             <Button
               onClick={onViewLeaderboard}
               className="w-full bg-gradient-primary text-primary-foreground font-poppins font-semibold py-3 rounded-xl shadow-glow-primary hover:scale-105 transition-all duration-300"
@@ -144,18 +193,24 @@ export const SubmissionScreen = ({
 
           <Button
             onClick={onPlayAgain}
-            variant="outline"
-            className="w-full border-border/50 hover:border-primary/50 font-poppins font-semibold py-3 rounded-xl"
+            variant={isWrongAnswer ? 'default' : 'outline'}
+            className={`w-full font-poppins font-semibold py-3 rounded-xl ${
+              isWrongAnswer
+                ? 'bg-gradient-primary text-primary-foreground shadow-glow-primary hover:scale-105 transition-all duration-300'
+                : 'border-border/50 hover:border-primary/50'
+            }`}
           >
             <Target className="mr-2 h-4 w-4" />
-            Play Another Puzzle
+            {isWrongAnswer ? 'Try Again' : 'Play Another Puzzle'}
           </Button>
         </div>
 
         {/* Note */}
-        <div className="text-center text-xs text-foreground/50">
-          Your final score will appear in tomorrow's leaderboard post
-        </div>
+        {isCorrect && (
+          <div className="text-center text-xs text-foreground/50">
+            Your final score will appear in tomorrow's leaderboard post
+          </div>
+        )}
       </div>
     </div>
   );

@@ -185,7 +185,7 @@ export const useGameState = () => {
 
       // Show loading message for enhanced generation
       toast.info('Loading puzzle...', {
-        description: 'Using enhanced generation for guaranteed solvable puzzles',
+        description: 'puzzle generation has been started........',
         duration: 3000,
       });
 
@@ -197,8 +197,8 @@ export const useGameState = () => {
 
       // Show success message if enhanced generation was used
       if (puzzleResponse.data.id?.includes('enhanced_')) {
-        toast.success('Enhanced puzzle loaded!', {
-          description: 'This puzzle is guaranteed to be solvable with optimal difficulty',
+        toast.success('Loading puzzle...', {
+          description: 'puzzle generation has been started.......',
           duration: 2000,
         });
       }
@@ -281,10 +281,10 @@ export const useGameState = () => {
       }));
 
       const percentage = hintData.percentage.toFixed(0);
-      toast.success(`Hint ${hintNumber}: ${percentage}% of laser path revealed!`, {
-        duration: 4000,
-        description: `Score multiplier now: ${scoreMultiplier.toFixed(1)}x`,
-      });
+      // toast.success(`Hint ${hintNumber}: ${percentage}% of laser path revealed!`, {
+      //   duration: 4000,
+      //   description: `Score multiplier now: ${scoreMultiplier.toFixed(1)}x`,
+      // });
     } catch (error) {
       setState((prev) => ({ ...prev, isRequestingHint: false }));
 
@@ -395,12 +395,12 @@ export const useGameState = () => {
           });
 
           // Show detailed score breakdown in a separate toast
-          setTimeout(() => {
-            toast.info('Score Breakdown', {
-              description: scoreBreakdown,
-              duration: 4000,
-            });
-          }, 1000);
+          // setTimeout(() => {
+          //   toast.info('Score Breakdown', {
+          //     description: scoreBreakdown,
+          //     duration: 4000,
+          //   });
+          // }, 1000);
 
           // Handle comment posting feedback for successful submissions
           if (commentPosting) {
@@ -493,12 +493,14 @@ export const useGameState = () => {
             }
           }
 
-          // Allow retry for incorrect answers
+          // Show submission screen for incorrect answers with retry option
           setState((prev) => ({
             ...prev,
-            isTimerRunning: true,
-            gameState: 'playing',
+            isTimerRunning: false,
+            gameState: 'completed',
             isSubmittingAnswer: false,
+            scoreResult: scoreResult,
+            finalTime: scoreResult.timeTaken,
           }));
         }
       } else {
