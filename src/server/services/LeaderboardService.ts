@@ -172,31 +172,26 @@ export class LeaderboardService {
       const allScores = await redis.zRange(dailyLeaderboardKey, 0, -1, {
         by: 'rank',
         reverse: true,
-        withScores: true,
       });
 
       // Filter by difficulty and build entries
       const filteredEntries: LeaderboardEntry[] = [];
       let rank = 1;
 
-      for (const scoreData of allScores) {
-        if (
-          scoreData &&
-          typeof scoreData === 'object' &&
-          'member' in scoreData &&
-          'score' in scoreData
-        ) {
-          const memberData = scoreData.member;
-          const score = scoreData.score;
-
+      for (const memberData of allScores) {
+        const memberString = String(memberData);
+        if (memberString && memberString.includes(':')) {
           // Parse member data (format: "username:difficulty")
-          const [username, entryDifficulty] = memberData.split(':');
+          const [username, entryDifficulty] = memberString.split(':');
 
           if (
             username &&
             entryDifficulty &&
             entryDifficulty.toLowerCase() === difficulty.toLowerCase()
           ) {
+            // Get the score for this member
+            const score = await redis.zScore(dailyLeaderboardKey, memberString);
+            if (score === null || score === undefined) continue;
             // Get submission details for timing info
             let timeTaken = 0;
             let hintsUsed = 0;
@@ -262,11 +257,16 @@ export class LeaderboardService {
   }> {
     try {
       const dailyLeaderboardKey = `reflectiq:leaderboard:daily:${date}`;
+      console.log(
+        `[LeaderboardService] Fetching daily leaderboard with key: ${dailyLeaderboardKey}`
+      );
 
       // Get total player count
       const totalPlayers = await redis.zCard(dailyLeaderboardKey);
+      console.log(`[LeaderboardService] Total players in leaderboard: ${totalPlayers}`);
 
       if (totalPlayers === 0) {
+        console.log(`[LeaderboardService] No players found in daily leaderboard for ${date}`);
         return {
           entries: [],
           totalPlayers: 0,
@@ -278,6 +278,7 @@ export class LeaderboardService {
         by: 'rank',
         reverse: true,
       });
+      console.log(`[LeaderboardService] Retrieved ${scores.length} scores from Redis:`, scores);
 
       // Build leaderboard entries
       const entries: LeaderboardEntry[] = [];
@@ -533,8 +534,11 @@ export class LeaderboardService {
   ): Promise<{ success: boolean; previousScore?: number; error?: string }> {
     try {
       const puzzleLeaderboardKey = `reflectiq:leaderboard:${puzzleId}`;
-      const dailyLeaderboardKey = `reflectiq:leaderboard:daily:${submission.timestamp.toISOString().split('T')[0]}`;
+      const dateStr = submission.timestamp.toISOString().split('T')[0];
+      const dailyLeaderboardKey = `reflectiq:leaderboard:daily:${dateStr}`;
       const submissionKey = `reflectiq:submissions:${puzzleId}`;
+
+      console.log(`[atomicScoreUpdate] Writing to daily leaderboard key: ${dailyLeaderboardKey}`);
 
       // Check if user has already submitted for this puzzle (first attempt only policy)
       const existingSubmission = await redis.hGet(submissionKey, userId);
@@ -556,7 +560,7 @@ export class LeaderboardService {
           // If previous submission was incorrect and this one is also incorrect, don't update leaderboard
           if (!submission.correct) {
             // Still store the submission for analytics but don't update leaderboard
-            await redis.hSet(submissionKey, userId, JSON.stringify(submission));
+            await redis.hSet(submissionKey, { [userId]: JSON.stringify(submission) });
             return {
               success: false,
               previousScore: 0,
@@ -578,7 +582,7 @@ export class LeaderboardService {
       // Only update leaderboard for correct answers
       if (!submission.correct) {
         // Store the submission for analytics but don't update leaderboard
-        await redis.hSet(submissionKey, userId, JSON.stringify(submission));
+        await redis.hSet(submissionKey, { [userId]: JSON.stringify(submission) });
         await redis.expire(submissionKey, 604800); // 7 days
 
         return {
@@ -587,6 +591,9 @@ export class LeaderboardService {
           error: 'Incorrect answer. Only correct answers are added to the leaderboard.',
         };
       }
+
+      // Get previous score before updating
+      const previousScore = (await redis.zScore(puzzleLeaderboardKey, userId)) || 0;
 
       // Update Redis data (Devvit Redis doesn't support multi/transactions)
       // Update puzzle leaderboard
@@ -597,7 +604,7 @@ export class LeaderboardService {
       await redis.zAdd(dailyLeaderboardKey, { member: dailyMember, score });
 
       // Store submission data
-      await redis.hSet(submissionKey, userId, JSON.stringify(submission));
+      await redis.hSet(submissionKey, { [userId]: JSON.stringify(submission) });
 
       // Set expiration policies
       await redis.expire(puzzleLeaderboardKey, 604800); // 7 days
@@ -610,7 +617,7 @@ export class LeaderboardService {
 
       return {
         success: true,
-        previousScore: previousScore || 0,
+        previousScore,
       };
     } catch (error) {
       console.error('Error in atomic score update:', error);
@@ -645,12 +652,13 @@ export class LeaderboardService {
         const submissionKey = `reflectiq:submissions:${puzzleId}`;
 
         // Get all members from puzzle leaderboard
-        const puzzleMembers = await redis.zRange(puzzleLeaderboardKey, 0, -1, { withScores: true });
+        const puzzleMembers = await redis.zRange(puzzleLeaderboardKey, 0, -1);
 
-        for (const member of puzzleMembers) {
-          if (typeof member === 'object' && 'member' in member && 'score' in member) {
-            const userId = member.member;
-            const score = member.score;
+        for (const userId of puzzleMembers) {
+          if (typeof userId === 'string') {
+            // Get the score for this member
+            const score = await redis.zScore(puzzleLeaderboardKey, userId);
+            if (score === null) continue;
 
             // Check if submission data exists
             const submissionData = await redis.hGet(submissionKey, userId);
@@ -659,8 +667,8 @@ export class LeaderboardService {
               issues.push(`Missing submission data for ${userId} in ${puzzleId}`);
 
               // Try to repair by removing from leaderboard
-              await redis.zRem(puzzleLeaderboardKey, userId);
-              await redis.zRem(dailyLeaderboardKey, `${userId}:${difficulty}`);
+              await redis.zRem(puzzleLeaderboardKey, [userId]);
+              await redis.zRem(dailyLeaderboardKey, [`${userId}:${difficulty}`]);
               repaired.push(`Removed orphaned leaderboard entry for ${userId} in ${puzzleId}`);
               continue;
             }
@@ -700,8 +708,8 @@ export class LeaderboardService {
 
               // Remove corrupted data
               await redis.hDel(submissionKey, userId);
-              await redis.zRem(puzzleLeaderboardKey, userId);
-              await redis.zRem(dailyLeaderboardKey, `${userId}:${difficulty}`);
+              await redis.zRem(puzzleLeaderboardKey, [userId]);
+              await redis.zRem(dailyLeaderboardKey, [`${userId}:${difficulty}`]);
               repaired.push(`Removed corrupted data for ${userId} in ${puzzleId}`);
             }
           }
@@ -712,15 +720,16 @@ export class LeaderboardService {
       const dailyMembers = await redis.zRange(dailyLeaderboardKey, 0, -1);
 
       for (const dailyMember of dailyMembers) {
-        if (typeof dailyMember === 'string') {
-          const [userId, difficulty] = dailyMember.split(':');
+        const memberString = String(dailyMember);
+        if (memberString && memberString.includes(':')) {
+          const [userId, difficulty] = memberString.split(':');
 
           if (!userId || !difficulty || !difficulties.includes(difficulty)) {
-            issues.push(`Invalid daily leaderboard entry format: ${dailyMember}`);
+            issues.push(`Invalid daily leaderboard entry format: ${memberString}`);
 
             // Remove invalid entry
-            await redis.zRem(dailyLeaderboardKey, dailyMember);
-            repaired.push(`Removed invalid daily leaderboard entry: ${dailyMember}`);
+            await redis.zRem(dailyLeaderboardKey, [memberString]);
+            repaired.push(`Removed invalid daily leaderboard entry: ${memberString}`);
             continue;
           }
 
@@ -728,11 +737,11 @@ export class LeaderboardService {
           const puzzleScore = await redis.zScore(`reflectiq:leaderboard:${puzzleId}`, userId);
 
           if (puzzleScore === null) {
-            issues.push(`Orphaned daily leaderboard entry: ${dailyMember}`);
+            issues.push(`Orphaned daily leaderboard entry: ${memberString}`);
 
             // Remove orphaned entry
-            await redis.zRem(dailyLeaderboardKey, dailyMember);
-            repaired.push(`Removed orphaned daily leaderboard entry: ${dailyMember}`);
+            await redis.zRem(dailyLeaderboardKey, [memberString]);
+            repaired.push(`Removed orphaned daily leaderboard entry: ${memberString}`);
           }
         }
       }
@@ -772,7 +781,10 @@ export class LeaderboardService {
       for (let i = retentionDays; i <= retentionDays + 30; i++) {
         const checkDate = new Date();
         checkDate.setDate(checkDate.getDate() - i);
-        datesToCheck.push(checkDate.toISOString().split('T')[0]);
+        const dateString = checkDate.toISOString().split('T')[0];
+        if (dateString) {
+          datesToCheck.push(dateString);
+        }
       }
 
       for (const date of datesToCheck) {

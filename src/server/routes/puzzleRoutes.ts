@@ -413,14 +413,14 @@ router.post(
       difficulty: sessionData.difficulty,
     };
 
-    // Store submission
+    // Store submission (using consistent key format with reflectiq: prefix)
     try {
       await redisClient.hSet(
-        `submissions:${sessionData.puzzleId}`,
+        `reflectiq:submissions:${sessionData.puzzleId}`,
         sessionData.userId,
         JSON.stringify(submission)
       );
-      await redisClient.expire(`submissions:${sessionData.puzzleId}`, 604800);
+      await redisClient.expire(`reflectiq:submissions:${sessionData.puzzleId}`, 604800);
     } catch (error) {
       console.warn('Failed to store submission:', error);
     }

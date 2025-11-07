@@ -55,14 +55,14 @@
       },
       {
         "label": "📊 Daily Leaderboard",
-        "description": "View today's puzzle leaderboard",
+        "description": "View and create daily leaderboards with difficulty filtering",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/leaderboard"
       },
       {
         "label": "🏆 Weekly Leaderboard",
-        "description": "View this week's top performers",
+        "description": "View and create weekly leaderboards with difficulty filtering",
         "location": "subreddit",
         "forUserType": "moderator",
         "endpoint": "/internal/menu/weekly-leaderboard"

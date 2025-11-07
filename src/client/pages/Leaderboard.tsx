@@ -17,14 +17,40 @@ import {
   validateLeaderboardPostData,
   createFallbackLeaderboardData,
 } from '../../shared/utils/postDataValidation';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
+import { Difficulty } from '../../shared/types/puzzle';
+
+// Utility function to convert difficulty formats
+const normalizeDifficulty = (difficulty: string): 'Easy' | 'Medium' | 'Hard' | 'mixed' => {
+  switch (difficulty.toLowerCase()) {
+    case 'easy':
+      return 'Easy';
+    case 'medium':
+      return 'Medium';
+    case 'hard':
+      return 'Hard';
+    case 'mixed':
+      return 'mixed';
+    default:
+      return 'Easy';
+  }
+};
 
 interface LeaderboardEntry {
   rank: number;
   username: string;
   time: string;
-  difficulty: 'easy' | 'medium' | 'hard' | 'mixed';
+  difficulty: 'Easy' | 'Medium' | 'Hard' | 'mixed';
   hintsUsed: number;
   score: number;
+  puzzlesSolved?: number; // For weekly leaderboards
+  averageScore?: number; // For weekly leaderboards
 }
 
 interface LeaderboardStats {
@@ -54,12 +80,12 @@ const formatTime = (seconds: number): string => {
   return `${minutes.toString().padStart(2, '0')}:${remainingSeconds.toString().padStart(2, '0')}`;
 };
 
-type DifficultyFilter = 'all' | 'easy' | 'medium' | 'hard';
+type DifficultyFilter = 'all' | 'Easy' | 'Medium' | 'Hard';
 
 export default function Leaderboard() {
   const [allLeaderboardData, setAllLeaderboardData] = useState<LeaderboardEntry[]>([]);
   const [filteredData, setFilteredData] = useState<LeaderboardEntry[]>([]);
-  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyFilter>('easy');
+  const [selectedDifficulty, setSelectedDifficulty] = useState<DifficultyFilter>('Easy');
   const [stats, setStats] = useState<LeaderboardStats>({
     fastestTime: '00:00',
     topScore: 0,
@@ -67,6 +93,8 @@ export default function Leaderboard() {
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isWeeklyLeaderboard, setIsWeeklyLeaderboard] = useState(false);
+  const [leaderboardTitle, setLeaderboardTitle] = useState('Leaderboard');
 
   useEffect(() => {
     const fetchLeaderboardData = async () => {
@@ -80,13 +108,53 @@ export default function Leaderboard() {
         if (contextData.postData && validateLeaderboardPostData(contextData.postData)) {
           // Use validated postData from custom post
           const postData = contextData.postData;
-          setAllLeaderboardData(postData.entries);
+
+          // Detect if this is a weekly leaderboard
+          const isWeekly = postData.leaderboardType === 'weekly';
+          setIsWeeklyLeaderboard(isWeekly);
+
+          // Set appropriate title
+          if (isWeekly) {
+            setLeaderboardTitle(`Weekly Leaderboard (${postData.weekStart} - ${postData.weekEnd})`);
+          } else {
+            setLeaderboardTitle(`Daily Leaderboard - ${postData.date}`);
+          }
+
+          const normalizedEntries = postData.entries.map(
+            (entry: {
+              rank: number;
+              username: string;
+              time: string;
+              difficulty: string;
+              hintsUsed: number;
+              score: number;
+              puzzlesSolved?: number;
+              averageScore?: number;
+            }) => ({
+              ...entry,
+              difficulty: normalizeDifficulty(entry.difficulty),
+            })
+          );
+          setAllLeaderboardData(normalizedEntries);
           setStats(postData.stats);
         } else if (contextData.postData && contextData.postData.type === 'leaderboard') {
           // Invalid postData, use fallback
           console.warn('Invalid leaderboard postData, using fallback');
           const fallbackData = createFallbackLeaderboardData();
-          setAllLeaderboardData(fallbackData.entries);
+          const normalizedEntries = fallbackData.entries.map(
+            (entry: {
+              rank: number;
+              username: string;
+              time: string;
+              difficulty: string;
+              hintsUsed: number;
+              score: number;
+            }) => ({
+              ...entry,
+              difficulty: normalizeDifficulty(entry.difficulty),
+            })
+          );
+          setAllLeaderboardData(normalizedEntries);
           setStats(fallbackData.stats);
           setError('Invalid leaderboard data format');
         } else {
@@ -96,18 +164,18 @@ export default function Leaderboard() {
 
           // Fetch data for all difficulties to enable client-side filtering
           const [easyResponse, mediumResponse, hardResponse] = await Promise.all([
-            apiService.getDailyLeaderboard(today, 100, 'easy').catch(() => ({ success: false })),
-            apiService.getDailyLeaderboard(today, 100, 'medium').catch(() => ({ success: false })),
-            apiService.getDailyLeaderboard(today, 100, 'hard').catch(() => ({ success: false })),
+            apiService.getDailyLeaderboard(today, 100, 'Easy').catch(() => ({ success: false })),
+            apiService.getDailyLeaderboard(today, 100, 'Medium').catch(() => ({ success: false })),
+            apiService.getDailyLeaderboard(today, 100, 'Hard').catch(() => ({ success: false })),
           ]);
 
           const allEntries: LeaderboardEntry[] = [];
 
           // Process each difficulty response
           [
-            { response: easyResponse, difficulty: 'easy' },
-            { response: mediumResponse, difficulty: 'medium' },
-            { response: hardResponse, difficulty: 'hard' },
+            { response: easyResponse, difficulty: 'Easy' as const },
+            { response: mediumResponse, difficulty: 'Medium' as const },
+            { response: hardResponse, difficulty: 'Hard' as const },
           ].forEach(({ response, difficulty }) => {
             if (response.success && response.data) {
               const transformedData: LeaderboardEntry[] = response.data.leaderboard.map(
@@ -124,7 +192,7 @@ export default function Leaderboard() {
                   rank: index + 1, // This will be recalculated later
                   username: entry.username,
                   time: formatTime(entry.time),
-                  difficulty: difficulty as 'easy' | 'medium' | 'hard',
+                  difficulty: difficulty as 'Easy' | 'Medium' | 'Hard',
                   hintsUsed: entry.hints,
                   score: entry.score,
                 })
@@ -144,7 +212,20 @@ export default function Leaderboard() {
           } else {
             // Use validated fallback data if no real data available
             const fallbackData = createFallbackLeaderboardData();
-            setAllLeaderboardData(fallbackData.entries);
+            const normalizedEntries = fallbackData.entries.map(
+              (entry: {
+                rank: number;
+                username: string;
+                time: string;
+                difficulty: string;
+                hintsUsed: number;
+                score: number;
+              }) => ({
+                ...entry,
+                difficulty: normalizeDifficulty(entry.difficulty),
+              })
+            );
+            setAllLeaderboardData(normalizedEntries);
           }
         }
       } catch (err) {
@@ -153,7 +234,20 @@ export default function Leaderboard() {
 
         // Fallback to validated sample data on error
         const fallbackData = createFallbackLeaderboardData();
-        setAllLeaderboardData(fallbackData.entries);
+        const normalizedEntries = fallbackData.entries.map(
+          (entry: {
+            rank: number;
+            username: string;
+            time: string;
+            difficulty: string;
+            hintsUsed: number;
+            score: number;
+          }) => ({
+            ...entry,
+            difficulty: normalizeDifficulty(entry.difficulty),
+          })
+        );
+        setAllLeaderboardData(normalizedEntries);
         setStats(fallbackData.stats);
       } finally {
         setLoading(false);
@@ -186,17 +280,17 @@ export default function Leaderboard() {
         if (selectedDifficulty === 'all') {
           // Fetch all difficulties
           const [easyResponse, mediumResponse, hardResponse] = await Promise.all([
-            apiService.getDailyLeaderboard(today, 100, 'easy').catch(() => ({ success: false })),
-            apiService.getDailyLeaderboard(today, 100, 'medium').catch(() => ({ success: false })),
-            apiService.getDailyLeaderboard(today, 100, 'hard').catch(() => ({ success: false })),
+            apiService.getDailyLeaderboard(today, 100, 'Easy').catch(() => ({ success: false })),
+            apiService.getDailyLeaderboard(today, 100, 'Medium').catch(() => ({ success: false })),
+            apiService.getDailyLeaderboard(today, 100, 'Hard').catch(() => ({ success: false })),
           ]);
 
           const allEntries: LeaderboardEntry[] = [];
 
           [
-            { response: easyResponse, difficulty: 'easy' },
-            { response: mediumResponse, difficulty: 'medium' },
-            { response: hardResponse, difficulty: 'hard' },
+            { response: easyResponse, difficulty: 'Easy' as const },
+            { response: mediumResponse, difficulty: 'Medium' as const },
+            { response: hardResponse, difficulty: 'Hard' as const },
           ].forEach(({ response, difficulty }) => {
             if (response.success && response.data) {
               const transformedData: LeaderboardEntry[] = response.data.leaderboard.map(
@@ -213,7 +307,7 @@ export default function Leaderboard() {
                   rank: index + 1,
                   username: entry.username,
                   time: formatTime(entry.time),
-                  difficulty: difficulty as 'easy' | 'medium' | 'hard',
+                  difficulty: difficulty as 'Easy' | 'Medium' | 'Hard',
                   hintsUsed: entry.hints,
                   score: entry.score,
                 })
@@ -252,7 +346,7 @@ export default function Leaderboard() {
                 rank: index + 1,
                 username: entry.username,
                 time: formatTime(entry.time),
-                difficulty: selectedDifficulty as 'easy' | 'medium' | 'hard',
+                difficulty: selectedDifficulty as 'Easy' | 'Medium' | 'Hard',
                 hintsUsed: entry.hints,
                 score: entry.score,
               })
@@ -283,14 +377,21 @@ export default function Leaderboard() {
     // Update stats based on filtered data
     if (filtered.length > 0) {
       const fastestEntry = filtered.reduce((fastest, current) => {
+        // Convert time to seconds for comparison
+        const parseTime = (timeStr: string): number => {
+          if (!timeStr || timeStr === '00:00') return Infinity;
+          const parts = timeStr.split(':');
+          if (parts.length !== 2) return Infinity;
+          const minutes = parseInt(parts[0] || '0') || 0;
+          const seconds = parseInt(parts[1] || '0') || 0;
+          return minutes * 60 + seconds;
+        };
+
         const fastestTime =
-          typeof fastest.time === 'string'
-            ? parseInt(fastest.time.split(':')[0]) * 60 + parseInt(fastest.time.split(':')[1])
-            : fastest.time;
+          typeof fastest.time === 'string' ? parseTime(fastest.time) : fastest.time;
         const currentTime =
-          typeof current.time === 'string'
-            ? parseInt(current.time.split(':')[0]) * 60 + parseInt(current.time.split(':')[1])
-            : current.time;
+          typeof current.time === 'string' ? parseTime(current.time) : current.time;
+
         return currentTime < fastestTime ? current : fastest;
       });
 
@@ -354,51 +455,58 @@ export default function Leaderboard() {
           </Link>
 
           <h1 className="font-montserrat font-bold text-5xl md:text-7xl mb-3 bg-gradient-primary bg-clip-text text-transparent animate-shimmer bg-[length:200%_100%]">
-            Leaderboard
+            {leaderboardTitle}
           </h1>
           <p className="text-muted-foreground text-lg font-poppins">
             {selectedDifficulty === 'all'
               ? 'Top solvers across all difficulties'
-              : `Top ${selectedDifficulty} difficulty solvers`}
+              : `Top ${selectedDifficulty.toLowerCase()} difficulty solvers`}
           </p>
           {error && <p className="text-yellow-400 text-sm mt-2">{error} - Showing sample data</p>}
         </div>
 
         {/* Difficulty Filter */}
         <div className="flex justify-center mb-8">
-          <Card className="p-2 bg-card/50 backdrop-blur-sm border-border">
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-muted-foreground" />
-              <span className="text-sm text-muted-foreground mr-2">Filter by:</span>
-              <div className="flex gap-1">
-                {(['all', 'easy', 'medium', 'hard'] as DifficultyFilter[]).map((difficulty) => (
-                  <Button
-                    key={difficulty}
-                    variant={selectedDifficulty === difficulty ? 'default' : 'ghost'}
-                    size="sm"
-                    onClick={() => setSelectedDifficulty(difficulty)}
-                    className={`px-3 py-1 text-xs font-medium transition-all duration-200 ${
-                      selectedDifficulty === difficulty
-                        ? difficulty === 'easy'
-                          ? 'bg-green-500 hover:bg-green-600 text-white'
-                          : difficulty === 'medium'
-                            ? 'bg-yellow-500 hover:bg-yellow-600 text-white'
-                            : difficulty === 'hard'
-                              ? 'bg-red-500 hover:bg-red-600 text-white'
-                              : 'bg-primary hover:bg-primary/90'
-                        : 'hover:bg-muted'
-                    }`}
-                  >
-                    {difficulty === 'all'
-                      ? '🎯 All'
-                      : difficulty === 'easy'
-                        ? '🟢 Easy'
-                        : difficulty === 'medium'
-                          ? '🟡 Medium'
-                          : '🔴 Hard'}
-                  </Button>
-                ))}
+          <Card className="p-4 bg-card/50 backdrop-blur-sm border-border">
+            <div className="flex items-center gap-4">
+              <div className="flex items-center gap-2">
+                <Filter className="w-4 h-4 text-muted-foreground" />
+                <span className="text-sm text-muted-foreground">Filter by difficulty:</span>
               </div>
+              <Select
+                value={selectedDifficulty}
+                onValueChange={(value: DifficultyFilter) => setSelectedDifficulty(value)}
+              >
+                <SelectTrigger className="w-[180px] bg-background/50 border-border">
+                  <SelectValue placeholder="Select difficulty" />
+                </SelectTrigger>
+                <SelectContent className="bg-background/95 backdrop-blur-sm border-border">
+                  <SelectItem value="all" className="cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <span>🎯</span>
+                      <span>All Difficulties</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="Easy" className="cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <span>🟢</span>
+                      <span>Easy</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="Medium" className="cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <span>🟡</span>
+                      <span>Medium</span>
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="Hard" className="cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <span>🔴</span>
+                      <span>Hard</span>
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </Card>
         </div>
@@ -438,9 +546,7 @@ export default function Leaderboard() {
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">
-                  {selectedDifficulty === 'all'
-                    ? 'Total Players'
-                    : `${selectedDifficulty.charAt(0).toUpperCase() + selectedDifficulty.slice(1)} Players`}
+                  {selectedDifficulty === 'all' ? 'Total Players' : `${selectedDifficulty} Players`}
                 </p>
                 <p className="text-2xl font-orbitron font-bold text-primary-light">
                   {stats.totalPlayers.toLocaleString()}
@@ -459,15 +565,23 @@ export default function Leaderboard() {
                   <TableHead className="text-primary font-semibold">Rank</TableHead>
                   <TableHead className="text-primary font-semibold">Player</TableHead>
                   <TableHead className="text-primary font-semibold hidden md:table-cell">
-                    Time
+                    {isWeeklyLeaderboard ? 'Best Time' : 'Time'}
                   </TableHead>
                   <TableHead className="text-primary font-semibold hidden sm:table-cell">
                     Difficulty
                   </TableHead>
-                  <TableHead className="text-primary font-semibold hidden lg:table-cell">
-                    Hints Used
+                  {isWeeklyLeaderboard ? (
+                    <TableHead className="text-primary font-semibold hidden lg:table-cell">
+                      Puzzles Solved
+                    </TableHead>
+                  ) : (
+                    <TableHead className="text-primary font-semibold hidden lg:table-cell">
+                      Hints Used
+                    </TableHead>
+                  )}
+                  <TableHead className="text-primary font-semibold text-right">
+                    {isWeeklyLeaderboard ? 'Total Score' : 'Score'}
                   </TableHead>
-                  <TableHead className="text-primary font-semibold text-right">Score</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -515,15 +629,29 @@ export default function Leaderboard() {
                         <span className="font-orbitron text-laser">{entry.time}</span>
                       </TableCell>
                       <TableCell className="hidden sm:table-cell">
-                        <DifficultyBadge difficulty={entry.difficulty} size="sm" />
+                        <DifficultyBadge
+                          difficulty={
+                            entry.difficulty.toLowerCase() as 'easy' | 'medium' | 'hard' | 'mixed'
+                          }
+                          size="sm"
+                        />
                       </TableCell>
                       <TableCell className="hidden lg:table-cell text-center">
-                        <span className="text-muted-foreground">{entry.hintsUsed}/4</span>
+                        {isWeeklyLeaderboard ? (
+                          <span className="text-muted-foreground">{entry.puzzlesSolved || 0}</span>
+                        ) : (
+                          <span className="text-muted-foreground">{entry.hintsUsed}/4</span>
+                        )}
                       </TableCell>
                       <TableCell className="text-right">
                         <span className="font-orbitron font-bold text-primary">
                           {entry.score.toLocaleString()}
                         </span>
+                        {isWeeklyLeaderboard && entry.averageScore && (
+                          <div className="text-xs text-muted-foreground">
+                            Avg: {entry.averageScore}
+                          </div>
+                        )}
                       </TableCell>
                     </TableRow>
                   ))
@@ -535,7 +663,11 @@ export default function Leaderboard() {
 
         {/* Footer Note */}
         <div className="text-center mt-8 text-muted-foreground text-sm">
-          <p>Rankings updated in real-time • Score based on time, difficulty, and hints used</p>
+          <p>
+            {isWeeklyLeaderboard
+              ? 'Weekly rankings • Total score across all puzzles solved during the week'
+              : 'Rankings updated in real-time • Score based on time, difficulty, and hints used'}
+          </p>
         </div>
       </div>
     </div>

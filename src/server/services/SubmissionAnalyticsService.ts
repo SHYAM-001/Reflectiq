@@ -5,7 +5,7 @@
  */
 
 import { logger } from '../utils/logger.js';
-import { redisClient } from '../utils/redisClient.js';
+import { redis } from '@devvit/web/server';
 import { Submission, Difficulty } from '../../shared/types/puzzle.js';
 
 export interface SubmissionLogEntry {
@@ -139,8 +139,8 @@ class SubmissionAnalyticsService {
       const logKey = `analytics:submissions:${submission.timestamp.toISOString().split('T')[0]}`;
       const logId = `${submission.userId}_${submission.puzzleId}_${submission.timestamp.getTime()}`;
 
-      await redisClient.hSet(logKey, logId, JSON.stringify(logEntry));
-      await redisClient.expire(logKey, 2592000); // 30 days retention
+      await redis.hSet(logKey, { [logId]: JSON.stringify(logEntry) });
+      await redis.expire(logKey, 2592000); // 30 days retention
     } catch (error) {
       logger.error('Failed to store submission analytics', { error: error.message });
     }
@@ -200,24 +200,20 @@ class SubmissionAnalyticsService {
 
       const metricsKey = `analytics:volume:${dateKey}:${hour}:${submission.difficulty}`;
 
-      // Use Redis pipeline for atomic updates
-      const pipeline = redisClient.multi();
-
-      pipeline.hIncrBy(metricsKey, 'totalSubmissions', 1);
+      // Use individual Redis calls (Devvit doesn't support multi/transactions)
+      await redis.hIncrBy(metricsKey, 'totalSubmissions', 1);
 
       if (submission.correct) {
-        pipeline.hIncrBy(metricsKey, 'correctSubmissions', 1);
+        await redis.hIncrBy(metricsKey, 'correctSubmissions', 1);
       } else {
-        pipeline.hIncrBy(metricsKey, 'incorrectSubmissions', 1);
+        await redis.hIncrBy(metricsKey, 'incorrectSubmissions', 1);
       }
 
       // Update running averages (simplified approach)
-      pipeline.hIncrBy(metricsKey, 'totalTime', submission.timeTaken);
-      pipeline.hIncrBy(metricsKey, 'totalScore', submission.score);
+      await redis.hIncrBy(metricsKey, 'totalTime', submission.timeTaken);
+      await redis.hIncrBy(metricsKey, 'totalScore', submission.score);
 
-      pipeline.expire(metricsKey, 604800); // 7 days retention
-
-      await pipeline.exec();
+      await redis.expire(metricsKey, 604800); // 7 days retention
     } catch (error) {
       logger.error('Failed to update volume metrics', { error: error.message });
     }
@@ -233,27 +229,23 @@ class SubmissionAnalyticsService {
       const hourKey = `analytics:success:hourly:${submissionDate.toISOString().slice(0, 13)}:${submission.difficulty}`;
       const dailyKey = `analytics:success:daily:${submissionDate.toISOString().split('T')[0]}:${submission.difficulty}`;
 
-      const pipeline = redisClient.multi();
-
-      // Update hourly metrics
-      pipeline.hIncrBy(hourKey, 'totalSubmissions', 1);
+      // Update hourly metrics (individual calls for Devvit compatibility)
+      await redis.hIncrBy(hourKey, 'totalSubmissions', 1);
       if (submission.correct) {
-        pipeline.hIncrBy(hourKey, 'successfulSubmissions', 1);
+        await redis.hIncrBy(hourKey, 'successfulSubmissions', 1);
       }
-      pipeline.hIncrBy(hourKey, 'totalTime', submission.timeTaken);
-      pipeline.hIncrBy(hourKey, 'totalHints', submission.hintsUsed);
-      pipeline.expire(hourKey, 604800); // 7 days retention
+      await redis.hIncrBy(hourKey, 'totalTime', submission.timeTaken);
+      await redis.hIncrBy(hourKey, 'totalHints', submission.hintsUsed);
+      await redis.expire(hourKey, 604800); // 7 days retention
 
       // Update daily metrics
-      pipeline.hIncrBy(dailyKey, 'totalSubmissions', 1);
+      await redis.hIncrBy(dailyKey, 'totalSubmissions', 1);
       if (submission.correct) {
-        pipeline.hIncrBy(dailyKey, 'successfulSubmissions', 1);
+        await redis.hIncrBy(dailyKey, 'successfulSubmissions', 1);
       }
-      pipeline.hIncrBy(dailyKey, 'totalTime', submission.timeTaken);
-      pipeline.hIncrBy(dailyKey, 'totalHints', submission.hintsUsed);
-      pipeline.expire(dailyKey, 2592000); // 30 days retention
-
-      await pipeline.exec();
+      await redis.hIncrBy(dailyKey, 'totalTime', submission.timeTaken);
+      await redis.hIncrBy(dailyKey, 'totalHints', submission.hintsUsed);
+      await redis.expire(dailyKey, 2592000); // 30 days retention
     } catch (error) {
       logger.error('Failed to update success rate metrics', { error: error.message });
     }
@@ -269,30 +261,28 @@ class SubmissionAnalyticsService {
     try {
       const metricsKey = `analytics:completion:${submission.puzzleId}`;
 
-      // Store individual completion time for statistical analysis
-      await redisClient.lPush(`${metricsKey}:times`, submission.timeTaken.toString());
-      await redisClient.lTrim(`${metricsKey}:times`, 0, 999); // Keep last 1000 times
-      await redisClient.expire(`${metricsKey}:times`, 604800); // 7 days retention
+      // Store completion time in hash for statistical analysis (Devvit compatible)
+      const timestamp = Date.now();
+      await redis.hSet(`${metricsKey}:times`, {
+        [timestamp.toString()]: submission.timeTaken.toString(),
+      });
+      await redis.expire(`${metricsKey}:times`, 604800); // 7 days retention
 
-      // Update time distribution counters
-      const pipeline = redisClient.multi();
-
+      // Update time distribution counters (individual calls for Devvit compatibility)
       if (submission.timeTaken < 30) {
-        pipeline.hIncrBy(metricsKey, 'under30s', 1);
+        await redis.hIncrBy(metricsKey, 'under30s', 1);
       } else if (submission.timeTaken < 60) {
-        pipeline.hIncrBy(metricsKey, 'under60s', 1);
+        await redis.hIncrBy(metricsKey, 'under60s', 1);
       } else if (submission.timeTaken < 120) {
-        pipeline.hIncrBy(metricsKey, 'under120s', 1);
+        await redis.hIncrBy(metricsKey, 'under120s', 1);
       } else if (submission.timeTaken < 300) {
-        pipeline.hIncrBy(metricsKey, 'under300s', 1);
+        await redis.hIncrBy(metricsKey, 'under300s', 1);
       } else {
-        pipeline.hIncrBy(metricsKey, 'over300s', 1);
+        await redis.hIncrBy(metricsKey, 'over300s', 1);
       }
 
-      pipeline.hIncrBy(metricsKey, 'totalCompletions', 1);
-      pipeline.expire(metricsKey, 604800); // 7 days retention
-
-      await pipeline.exec();
+      await redis.hIncrBy(metricsKey, 'totalCompletions', 1);
+      await redis.expire(metricsKey, 604800); // 7 days retention
     } catch (error) {
       logger.error('Failed to update completion time metrics', { error: error.message });
     }
@@ -310,8 +300,8 @@ class SubmissionAnalyticsService {
       const metricsKey = `analytics:performance:${type}:${now.toISOString().split('T')[0]}`;
       const metricsId = `${metrics.userId}_${now.getTime()}`;
 
-      await redisClient.hSet(metricsKey, metricsId, JSON.stringify(metrics));
-      await redisClient.expire(metricsKey, 604800); // 7 days retention
+      await redis.hSet(metricsKey, { [metricsId]: JSON.stringify(metrics) });
+      await redis.expire(metricsKey, 604800); // 7 days retention
     } catch (error) {
       logger.error(`Failed to store ${type} performance metrics`, { error: error.message });
     }
@@ -329,7 +319,7 @@ class SubmissionAnalyticsService {
     try {
       for (let hour = 0; hour < 24; hour++) {
         const metricsKey = `analytics:volume:${date}:${hour}:${difficulty}`;
-        const data = await redisClient.hGetAll(metricsKey);
+        const data = await redis.hGetAll(metricsKey);
 
         if (Object.keys(data).length > 0) {
           const totalSubmissions = parseInt(data.totalSubmissions || '0');
@@ -365,7 +355,7 @@ class SubmissionAnalyticsService {
   ): Promise<SuccessRateMetrics | null> {
     try {
       const metricsKey = `analytics:success:${period}:${timestamp}:${difficulty}`;
-      const data = await redisClient.hGetAll(metricsKey);
+      const data = await redis.hGetAll(metricsKey);
 
       if (Object.keys(data).length === 0) {
         return null;
@@ -398,8 +388,10 @@ class SubmissionAnalyticsService {
   public async getCompletionTimeMetrics(puzzleId: string): Promise<CompletionTimeMetrics | null> {
     try {
       const metricsKey = `analytics:completion:${puzzleId}`;
-      const distributionData = await redisClient.hGetAll(metricsKey);
-      const times = await redisClient.lRange(`${metricsKey}:times`, 0, -1);
+      const distributionData = await redis.hGetAll(metricsKey);
+      // Note: Using hGetAll instead of lRange since we changed to hash storage for Devvit compatibility
+      const timesData = await redis.hGetAll(`${metricsKey}:times`);
+      const times = Object.values(timesData).map((time) => parseInt(time));
 
       if (times.length === 0) {
         return null;

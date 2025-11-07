@@ -5,9 +5,10 @@
 export interface LeaderboardPostData {
   type: 'leaderboard';
   leaderboardType: 'daily' | 'weekly';
-  date: string;
+  date?: string;
   weekStart?: string;
   weekEnd?: string;
+  difficulty?: 'all' | 'Easy' | 'Medium' | 'Hard';
   entries: Array<{
     rank: number;
     username: string;
@@ -15,12 +16,15 @@ export interface LeaderboardPostData {
     difficulty: 'easy' | 'medium' | 'hard' | 'mixed';
     hintsUsed: number;
     score: number;
+    puzzlesSolved?: number; // For weekly leaderboards
+    averageScore?: number; // For weekly leaderboards
   }>;
   stats: {
     totalPlayers: number;
     totalSubmissions: number;
     fastestTime: string;
     topScore: number;
+    daysWithData?: number; // For weekly leaderboards
     puzzleStats: {
       easy: number;
       medium: number;
