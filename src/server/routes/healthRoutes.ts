@@ -14,6 +14,8 @@ import {
   errorMonitor,
   enhancedAsyncHandler,
 } from '../utils/errorHandler.js';
+import { performanceMonitor } from '../services/PerformanceMonitoringService.js';
+import { puzzleMetrics } from '../utils/puzzleMetrics.js';
 
 const router = Router();
 
@@ -38,7 +40,8 @@ router.get(
 
 /**
  * GET /api/health/detailed
- * Detailed health check including dependencies and error monitoring
+ * Detailed health check including dependencies, error monitoring, and performance metrics
+ * Requirements: 10.3, 10.4
  */
 router.get(
   '/health/detailed',
@@ -47,6 +50,10 @@ router.get(
 
     // Get error monitoring health status
     const errorHealthStatus = errorMonitor.getHealthStatus();
+
+    // Get performance monitoring health status
+    const performanceSummary = performanceMonitor.getPerformanceSummary();
+    const cacheMetrics = performanceMonitor.getCacheMetrics();
 
     // Check Redis connectivity
     let redisStatus = 'healthy';
@@ -72,7 +79,11 @@ router.get(
 
     // Determine overall health status
     const overallStatus =
-      redisStatus === 'healthy' && errorHealthStatus.status === 'healthy' ? 'healthy' : 'degraded';
+      redisStatus === 'healthy' &&
+      errorHealthStatus.status === 'healthy' &&
+      performanceSummary.health !== 'critical'
+        ? 'healthy'
+        : 'degraded';
 
     const healthStatus = {
       status: overallStatus,
@@ -92,6 +103,15 @@ router.get(
         platform: process.platform,
       },
       errorMonitoring: errorHealthStatus,
+      performance: {
+        health: performanceSummary.health,
+        cache: {
+          hitRate: cacheMetrics.hitRate,
+          totalRequests: cacheMetrics.totalRequests,
+          averageRetrievalTime: Math.round(cacheMetrics.averageRetrievalTime),
+        },
+        recentAlerts: performanceSummary.alerts.length,
+      },
       responseTime: Date.now() - startTime,
     };
 
@@ -113,7 +133,8 @@ router.get(
 
 /**
  * GET /api/metrics
- * Enhanced application metrics with error monitoring
+ * Enhanced application metrics with error monitoring and performance tracking
+ * Requirements: 10.3, 10.4, 10.5
  */
 router.get(
   '/metrics',
@@ -125,6 +146,13 @@ router.get(
     // Get error monitoring metrics
     const errorMetrics = errorMonitor.getMetrics();
     const errorHealthStatus = errorMonitor.getHealthStatus();
+
+    // Get performance monitoring metrics
+    const performanceSummary = performanceMonitor.getPerformanceSummary();
+    const cacheMetrics = performanceMonitor.getCacheMetrics();
+
+    // Get puzzle-specific metrics
+    const puzzleMetricsData = puzzleMetrics.getAggregatedMetrics();
 
     const metrics = {
       timestamp: new Date().toISOString(),
@@ -143,12 +171,38 @@ router.get(
         healthStatus: errorHealthStatus.status,
         circuitBreakers: errorHealthStatus.circuitBreakers,
       },
-      // Add more application-specific metrics here
+      performance: {
+        health: performanceSummary.health,
+        cache: cacheMetrics,
+        operations: performanceSummary.operations.map((op) => ({
+          name: op.operationName,
+          count: op.count,
+          averageDuration: Math.round(op.averageDuration),
+          successRate: Math.round(op.successRate * 100),
+          thresholdViolations: op.thresholdViolations,
+        })),
+        alertCount: performanceSummary.alerts.length,
+      },
       puzzles: {
-        // These would be populated from actual usage data
-        totalGenerated: 0,
-        totalSolved: 0,
-        averageTime: 0,
+        generation: {
+          total: puzzleMetricsData.generation.total,
+          successful: puzzleMetricsData.generation.successful,
+          failed: puzzleMetricsData.generation.failed,
+          averageTime: puzzleMetricsData.generation.averageTime,
+          byDifficulty: puzzleMetricsData.generation.byDifficulty,
+          bySource: puzzleMetricsData.generation.bySource,
+        },
+        retrieval: {
+          total: puzzleMetricsData.retrieval.total,
+          cacheHitRate: Math.round(puzzleMetricsData.retrieval.cacheHitRate * 100),
+          averageLatency: puzzleMetricsData.retrieval.averageLatency,
+          bySource: puzzleMetricsData.retrieval.bySource,
+        },
+        storage: {
+          total: puzzleMetricsData.storage.total,
+          successful: puzzleMetricsData.storage.successful,
+          averageLatency: puzzleMetricsData.storage.averageLatency,
+        },
       },
     };
 

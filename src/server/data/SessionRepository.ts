@@ -438,6 +438,98 @@ export class SessionRepository {
   }
 
   /**
+   * Validate that a session's puzzle ID matches the expected puzzle ID
+   * Requirement 6.2: Update session validation to verify puzzle ID matches
+   */
+  public async validateSessionPuzzleId(
+    sessionId: string,
+    expectedPuzzleId: string
+  ): Promise<boolean> {
+    try {
+      const session = await this.getSession(sessionId);
+
+      if (!session) {
+        logger.warn('Session not found for puzzle ID validation', { sessionId });
+        return false;
+      }
+
+      const isValid = session.puzzleId === expectedPuzzleId;
+
+      if (!isValid) {
+        logger.warn('Puzzle ID mismatch detected', {
+          sessionId,
+          sessionPuzzleId: session.puzzleId,
+          expectedPuzzleId,
+        });
+      }
+
+      return isValid;
+    } catch (error) {
+      logger.error('Failed to validate session puzzle ID', {
+        sessionId,
+        expectedPuzzleId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      return false;
+    }
+  }
+
+  /**
+   * Get sessions by puzzle ID
+   * Requirement 6.5: Maintain session isolation between different puzzle IDs
+   */
+  public async getSessionsByPuzzleId(puzzleId: string, limit: number = 50): Promise<SessionData[]> {
+    try {
+      const indexData = await redisClient.hGetAll(this.SESSION_INDEX_KEY);
+      const puzzleSessions: Array<{ sessionId: string; createdAt: Date }> = [];
+
+      for (const [sessionId, dataStr] of Object.entries(indexData)) {
+        try {
+          const indexEntry = JSON.parse(dataStr);
+          if (indexEntry.puzzleId === puzzleId) {
+            puzzleSessions.push({
+              sessionId,
+              createdAt: new Date(indexEntry.createdAt),
+            });
+          }
+        } catch (parseError) {
+          logger.warn('Failed to parse session index entry', { sessionId, dataStr });
+        }
+      }
+
+      // Sort by creation date (newest first) and limit
+      puzzleSessions.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+      const limitedSessions = puzzleSessions.slice(0, limit);
+
+      // Fetch full session data
+      const sessions: SessionData[] = [];
+      for (const { sessionId } of limitedSessions) {
+        const session = await this.getSession(sessionId, { includeSubmissions: false });
+        if (session) {
+          sessions.push(session);
+        }
+      }
+
+      logger.debug('Puzzle sessions retrieved', {
+        puzzleId,
+        totalFound: puzzleSessions.length,
+        returned: sessions.length,
+        limit,
+      });
+
+      return sessions;
+    } catch (error) {
+      logger.error('Failed to get sessions by puzzle ID', {
+        puzzleId,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      });
+      throw new Error(
+        `Failed to get sessions for puzzle ${puzzleId}: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
+  }
+
+  /**
    * Update session index for quick lookups
    */
   private async updateSessionIndex(sessionData: SessionData): Promise<void> {
@@ -446,8 +538,8 @@ export class SessionRepository {
         userId: sessionData.userId,
         puzzleId: sessionData.puzzleId,
         difficulty: sessionData.difficulty,
-        createdAt: sessionData.createdAt,
-        completedAt: sessionData.completedAt,
+        createdAt: sessionData.startTime, // Use startTime as createdAt
+        completedAt: sessionData.status === 'submitted' ? new Date() : undefined,
         hintsUsed: sessionData.hintsUsed,
       };
 

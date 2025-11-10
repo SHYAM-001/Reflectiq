@@ -16,6 +16,7 @@ import {
   ScoreResult,
   InitResponse,
   GridPosition,
+  GetPuzzleResponse,
 } from '../types/api';
 
 export type GameState = 'loading' | 'menu' | 'playing' | 'completed' | 'error';
@@ -163,44 +164,130 @@ export const useGameState = () => {
         errorType: null,
       }));
 
-      // Get difficulty from post context or default to Easy
+      // Requirement 4.1: Fetch post context first to get puzzle ID and difficulty
       let difficulty: Difficulty = 'Easy';
+      let puzzleId: string | null = null;
+      let puzzleSource: 'post-specific' | 'legacy' = 'legacy';
+      let isLegacyPost = false;
 
       try {
+        console.log('Fetching post context...');
         const postContextResponse = await fetch('/api/post-context');
+
         if (postContextResponse.ok) {
           const postContext = await postContextResponse.json();
           const postData = postContext.postData;
+
+          // Requirement 7.1: Add detection for posts without puzzleId in postData
+          if (postData && !postData.puzzleId) {
+            isLegacyPost = true;
+            console.log('⚠️ Legacy post detected (no puzzleId in postData)');
+
+            // Requirement 7.3: Add logging when legacy fallback is triggered
+            console.log('🔄 Triggering legacy fallback: using date-based daily puzzle retrieval');
+          }
+
+          // Requirement 4.2: Extract puzzleId and difficulty from postData
+          if (postData?.puzzleId) {
+            puzzleId = postData.puzzleId;
+            puzzleSource = 'post-specific';
+            console.log(`✓ Found post-specific puzzle ID: ${puzzleId}`);
+          }
 
           if (postData?.specificDifficulty) {
             // Convert to proper case (easy -> Easy, medium -> Medium, hard -> Hard)
             difficulty = (postData.specificDifficulty.charAt(0).toUpperCase() +
               postData.specificDifficulty.slice(1)) as Difficulty;
-            console.log(`Loading puzzle with difficulty from post context: ${difficulty}`);
+            console.log(`✓ Difficulty from post context: ${difficulty}`);
           }
+
+          // Requirement 7.2: Implement fallback to date-based daily puzzle retrieval
+          if (isLegacyPost && postData?.puzzleDate) {
+            console.log(`📅 Using legacy date-based puzzle for: ${postData.puzzleDate}`);
+          }
+        } else {
+          console.log('Post context not available, using legacy mode');
+          isLegacyPost = true;
         }
       } catch (error) {
-        console.log('Could not get post context, using default difficulty:', error);
+        console.log('Could not get post context, falling back to legacy mode:', error);
+        isLegacyPost = true;
+
+        // Requirement 7.3: Add logging when legacy fallback is triggered
+        console.log('🔄 Legacy fallback triggered due to error fetching post context');
       }
 
-      // Show loading message for enhanced generation
-      toast.info('Loading puzzle...', {
-        description: 'puzzle generation has been started........',
-        duration: 3000,
-      });
+      // Requirement 4.5: Add loading states and user feedback messages
+      // Requirement 7.4: Ensure full functionality for pre-migration posts
+      if (puzzleSource === 'post-specific') {
+        toast.info('Loading post-specific puzzle...', {
+          description: 'Retrieving your unique puzzle',
+          duration: 3000,
+        });
+      } else if (isLegacyPost) {
+        toast.info('Loading legacy puzzle...', {
+          description: 'Using date-based daily puzzle (pre-migration post)',
+          duration: 3000,
+        });
+      } else {
+        toast.info('Loading puzzle...', {
+          description: 'Using daily puzzle mode',
+          duration: 3000,
+        });
+      }
 
-      const puzzleResponse = await apiService.getCurrentPuzzle(difficulty);
+      let puzzleResponse: GetPuzzleResponse;
+
+      // Requirement 4.3: Call apiService.getPuzzleById() when puzzleId exists
+      if (puzzleId) {
+        try {
+          console.log(`Requesting puzzle by ID: ${puzzleId}`);
+          puzzleResponse = await apiService.getPuzzleById(puzzleId, difficulty);
+
+          if (puzzleResponse.success && puzzleResponse.data) {
+            console.log(`✓ Successfully loaded post-specific puzzle: ${puzzleId}`);
+            toast.success('Post-specific puzzle loaded!', {
+              description: `${difficulty} difficulty puzzle ready`,
+              duration: 2000,
+            });
+          }
+        } catch (error) {
+          // If puzzle-by-ID fails, fall back to current puzzle
+          console.warn(
+            `Failed to load puzzle by ID (${puzzleId}), falling back to current puzzle:`,
+            error
+          );
+
+          // Requirement 7.3: Add logging when legacy fallback is triggered
+          console.log('🔄 Legacy fallback triggered: puzzle-by-ID failed, using daily puzzle');
+
+          toast.warning('Falling back to daily puzzle', {
+            description: 'Could not load post-specific puzzle',
+            duration: 3000,
+          });
+          puzzleResponse = await apiService.getCurrentPuzzle(difficulty);
+        }
+      } else {
+        // Requirement 4.4: Implement fallback to getCurrentPuzzle() for backward compatibility
+        // Requirement 7.2: Implement fallback to date-based daily puzzle retrieval
+        // Requirement 7.4: Ensure full functionality for pre-migration posts
+        if (isLegacyPost) {
+          console.log('🔄 Legacy post: using date-based daily puzzle retrieval');
+          console.log(`📅 Fetching daily puzzle for difficulty: ${difficulty}`);
+        } else {
+          console.log('No puzzle ID found, using daily puzzle mode');
+        }
+
+        puzzleResponse = await apiService.getCurrentPuzzle(difficulty);
+
+        // Requirement 7.3: Add logging when legacy fallback is triggered
+        if (isLegacyPost) {
+          console.log('✓ Legacy puzzle loaded successfully via date-based retrieval');
+        }
+      }
 
       if (!puzzleResponse.success || !puzzleResponse.data) {
         throw new Error(puzzleResponse.error?.message || 'Failed to load puzzle');
-      }
-
-      // Show success message if enhanced generation was used
-      if (puzzleResponse.data.id?.includes('enhanced_')) {
-        toast.success('Loading puzzle...', {
-          description: 'puzzle generation has been started.......',
-          duration: 2000,
-        });
       }
 
       const puzzle = puzzleResponse.data;

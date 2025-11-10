@@ -2,6 +2,7 @@ import express from 'express';
 import { InitResponse, IncrementResponse, DecrementResponse } from '../shared/types/api';
 import { reddit, createServer, context, getServerPort, redis } from '@devvit/web/server';
 import { UiResponse } from '@devvit/web/shared';
+import { Difficulty } from '../shared/types/puzzle.js';
 import { redisClient } from './utils/redisClient.js';
 import {
   enhancedAsyncHandler,
@@ -18,6 +19,7 @@ import enhancedPuzzleRoutes from './routes/enhancedPuzzleRoutes.js';
 import leaderboardRoutes from './routes/leaderboardRoutes.js';
 import healthRoutes from './routes/healthRoutes.js';
 import completionCommentRoutes from './routes/completionCommentRoutes.js';
+import performanceRoutes from './routes/performanceRoutes.js';
 
 const app = express();
 
@@ -209,6 +211,7 @@ router.use('/api/puzzle', enhancedPuzzleRoutes); // Enhanced generation endpoint
 router.use('/api/leaderboard', leaderboardRoutes);
 router.use('/api/completion-comment', completionCommentRoutes); // Dedicated completion comment handler
 router.use('/api', healthRoutes);
+router.use('/api', performanceRoutes); // Performance monitoring endpoints
 
 // Debug endpoint to test comment processing manually
 router.post('/api/debug/test-comment', async (req, res): Promise<void> => {
@@ -250,10 +253,29 @@ router.post('/api/debug/test-comment', async (req, res): Promise<void> => {
 });
 
 // Post context endpoint for React client
+// Requirement 7.1: Add detection for posts without puzzleId in postData
+// Requirement 7.3: Add logging when legacy fallback is triggered
 router.get('/api/post-context', async (_req, res): Promise<void> => {
   try {
     // In Devvit Web, post data should be available through context
     const postData = context.postData || null;
+
+    // Requirement 7.1: Detect legacy posts without puzzleId
+    if (postData && !postData.puzzleId) {
+      console.log('⚠️ Legacy post detected in post-context endpoint (no puzzleId)');
+      console.log(
+        `📅 Post date: ${postData.puzzleDate || 'unknown'}, difficulty: ${postData.specificDifficulty || 'unknown'}`
+      );
+
+      // Requirement 7.3: Add logging when legacy fallback is triggered
+      errorMonitor.recordError(
+        'LEGACY_POST_DETECTED',
+        `Legacy post accessed: ${context.postId || 'unknown'} - will use date-based puzzle retrieval`,
+        'GET /api/post-context'
+      );
+    } else if (postData?.puzzleId) {
+      console.log(`✓ Post-specific puzzle ID found: ${postData.puzzleId}`);
+    }
 
     res.json({
       postData,
@@ -262,10 +284,224 @@ router.get('/api/post-context', async (_req, res): Promise<void> => {
     });
   } catch (error) {
     console.error('Error getting post context:', error);
+
+    // Requirement 7.3: Add logging when legacy fallback is triggered
+    console.log('🔄 Post context error - client will use legacy fallback');
+
     res.json({
       postData: null,
       postId: null,
       subredditName: null,
+    });
+  }
+});
+
+// Puzzle retrieval by date endpoint for legacy posts
+// Requirement 7.2: Implement fallback to date-based daily puzzle retrieval
+// Requirement 7.3: Add logging when legacy fallback is triggered
+// Requirement 7.4: Ensure full functionality for pre-migration posts
+router.get('/api/puzzle/by-date', async (req, res): Promise<void> => {
+  const startTime = Date.now();
+
+  try {
+    // Extract and validate parameters
+    const date = req.query.date as string;
+    const difficulty = req.query.difficulty as Difficulty;
+
+    // Validate date parameter
+    if (!date || typeof date !== 'string') {
+      console.warn('Invalid date parameter:', date);
+      res.status(400).json({
+        success: false,
+        error: {
+          type: 'VALIDATION_ERROR',
+          message: 'Missing or invalid date parameter',
+        },
+      });
+      return;
+    }
+
+    // Validate difficulty parameter
+    if (!difficulty || !['Easy', 'Medium', 'Hard'].includes(difficulty)) {
+      console.warn('Invalid difficulty parameter:', difficulty);
+      res.status(400).json({
+        success: false,
+        error: {
+          type: 'VALIDATION_ERROR',
+          message: 'Missing or invalid difficulty parameter. Must be Easy, Medium, or Hard.',
+        },
+      });
+      return;
+    }
+
+    // Requirement 7.3: Add logging when legacy fallback is triggered
+    console.log(`🔄 Legacy puzzle retrieval by date: ${date}, difficulty: ${difficulty}`);
+
+    // Requirement 7.2: Implement fallback to date-based daily puzzle retrieval
+    const puzzleService = PuzzleService.getInstance();
+    const puzzleResponse = await puzzleService.getPuzzleByDate(date, difficulty);
+
+    if (!puzzleResponse.success || !puzzleResponse.data) {
+      console.error(`Failed to retrieve legacy puzzle for ${date}, ${difficulty}`);
+      res.status(500).json({
+        success: false,
+        error: {
+          type: 'PUZZLE_NOT_FOUND',
+          message: 'Failed to retrieve puzzle for the specified date',
+        },
+      });
+      return;
+    }
+
+    const retrievalTime = Date.now() - startTime;
+
+    // Return puzzle data with metadata
+    res.json({
+      success: true,
+      data: puzzleResponse.data,
+      metadata: {
+        source: 'legacy-date-based',
+        retrievalTime,
+        date,
+        difficulty,
+      },
+    });
+
+    // Requirement 7.3: Add logging when legacy fallback is triggered
+    console.log(
+      `✓ Legacy puzzle retrieved successfully for ${date}, difficulty: ${difficulty} (time: ${retrievalTime}ms)`
+    );
+  } catch (error) {
+    const retrievalTime = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    console.error('Error in puzzle-by-date endpoint:', errorMessage);
+
+    // Record error for monitoring
+    errorMonitor.recordError(
+      'PUZZLE_RETRIEVAL_ERROR',
+      `Failed to retrieve legacy puzzle by date: ${errorMessage}`,
+      'GET /api/puzzle/by-date'
+    );
+
+    res.status(500).json({
+      success: false,
+      error: {
+        type: 'INTERNAL_ERROR',
+        message: 'Failed to retrieve puzzle',
+      },
+      metadata: {
+        retrievalTime,
+      },
+    });
+  }
+});
+
+// Puzzle retrieval by ID endpoint for post-specific puzzles
+// Requirements: 5.1, 5.2, 5.3, 5.4, 5.5
+router.get('/api/puzzle/by-id', async (req, res): Promise<void> => {
+  const startTime = Date.now();
+
+  try {
+    // Extract and validate parameters
+    const puzzleId = req.query.puzzleId as string;
+    const difficulty = req.query.difficulty as Difficulty;
+
+    // Requirement 5.2: Validate puzzle ID format
+    if (!puzzleId || typeof puzzleId !== 'string') {
+      console.warn('Invalid puzzle ID parameter:', puzzleId);
+      res.status(400).json({
+        success: false,
+        error: {
+          type: 'VALIDATION_ERROR',
+          message: 'Missing or invalid puzzleId parameter',
+        },
+      });
+      return;
+    }
+
+    // Validate difficulty parameter
+    if (!difficulty || !['Easy', 'Medium', 'Hard'].includes(difficulty)) {
+      console.warn('Invalid difficulty parameter:', difficulty);
+      res.status(400).json({
+        success: false,
+        error: {
+          type: 'VALIDATION_ERROR',
+          message: 'Missing or invalid difficulty parameter. Must be Easy, Medium, or Hard.',
+        },
+      });
+      return;
+    }
+
+    console.log(`Retrieving puzzle by ID: ${puzzleId}, difficulty: ${difficulty}`);
+
+    // Requirement 5.3: Call PuzzleService to retrieve puzzle from Redis
+    const puzzleService = PuzzleService.getInstance();
+    let puzzle = await puzzleService.getPuzzleById(puzzleId);
+    let source: 'cache' | 'generated' = 'cache';
+
+    // Requirement 5.5: Generate new puzzle if not found in Redis
+    if (!puzzle) {
+      console.log(`Puzzle not found in cache: ${puzzleId}, generating new puzzle...`);
+
+      const generateResponse = await puzzleService.generatePuzzleWithId(puzzleId, difficulty);
+
+      if (!generateResponse.success || !generateResponse.data) {
+        console.error(`Failed to generate puzzle: ${puzzleId}`);
+        res.status(500).json({
+          success: false,
+          error: {
+            type: 'GENERATION_FAILED',
+            message: 'Failed to generate puzzle',
+          },
+        });
+        return;
+      }
+
+      puzzle = generateResponse.data;
+      source = 'generated';
+    }
+
+    const retrievalTime = Date.now() - startTime;
+
+    // Requirement 5.4: Return puzzle data with success status
+    // Include metadata about puzzle source (cache/generated)
+    res.json({
+      success: true,
+      data: puzzle,
+      metadata: {
+        source,
+        retrievalTime,
+        puzzleId,
+        difficulty,
+      },
+    });
+
+    console.log(
+      `✓ Puzzle retrieved successfully: ${puzzleId} (source: ${source}, time: ${retrievalTime}ms)`
+    );
+  } catch (error) {
+    const retrievalTime = Date.now() - startTime;
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+    console.error('Error in puzzle-by-id endpoint:', errorMessage);
+
+    // Record error for monitoring
+    errorMonitor.recordError(
+      'PUZZLE_RETRIEVAL_ERROR',
+      `Failed to retrieve puzzle by ID: ${errorMessage}`,
+      'GET /api/puzzle/by-id'
+    );
+
+    res.status(500).json({
+      success: false,
+      error: {
+        type: 'INTERNAL_ERROR',
+        message: 'Failed to retrieve puzzle',
+      },
+      metadata: {
+        retrievalTime,
+      },
     });
   }
 });

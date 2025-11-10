@@ -299,6 +299,233 @@ class EnhancedApiService {
   }
 
   /**
+   * Get puzzle by date (for legacy posts)
+   * Requirement 7.2: Implement fallback to date-based daily puzzle retrieval
+   * Requirement 7.4: Ensure full functionality for pre-migration posts
+   */
+  async getPuzzleByDate(date: string, difficulty: Difficulty): Promise<GetPuzzleResponse> {
+    try {
+      // Format request parameters
+      const params = new URLSearchParams({
+        date,
+        difficulty,
+      });
+
+      console.log(`🔄 Requesting legacy puzzle by date: ${date}, difficulty: ${difficulty}`);
+
+      // Use standard timeout for legacy puzzle retrieval
+      const LEGACY_PUZZLE_TIMEOUT = 5000; // 5 seconds
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        abortController.abort();
+      }, LEGACY_PUZZLE_TIMEOUT);
+
+      try {
+        const response = await fetch(
+          `${this.config.baseUrl}/api/puzzle/by-date?${params.toString()}`,
+          {
+            method: 'GET',
+            signal: abortController.signal,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const error = new Error(errorData.message || `HTTP ${response.status}`);
+          (error as any).status = response.status;
+          throw error;
+        }
+
+        const data = await response.json();
+
+        // Check if response is successful
+        if (!data.success || !data.data) {
+          throw new Error('Failed to retrieve legacy puzzle by date');
+        }
+
+        // Log metadata about puzzle source
+        if (data.metadata) {
+          console.log(
+            `✓ Legacy puzzle retrieved: ${date} (source: ${data.metadata.source}, time: ${data.metadata.retrievalTime}ms)`
+          );
+        }
+
+        return {
+          success: true,
+          data: data.data,
+          timestamp: new Date(),
+        };
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        throw fetchError;
+      }
+    } catch (error) {
+      console.error(`Error fetching legacy puzzle by date (${date}):`, error);
+
+      // Create appropriate error type
+      const apiError = this.createApiError(error, 'getPuzzleByDate');
+
+      // Show user-friendly error messages
+      if (apiError.type === 'TIMEOUT_ERROR') {
+        toast.error('Legacy puzzle loading timed out', {
+          description: 'Please try again.',
+          duration: 4000,
+        });
+      } else {
+        toast.error('Failed to load legacy puzzle', {
+          description: 'Please try again or contact support.',
+          duration: 4000,
+        });
+      }
+
+      throw apiError;
+    }
+  }
+
+  /**
+   * Get puzzle by unique ID (for post-specific puzzles)
+   * Requirements: 4.1, 4.2, 4.3, 4.4, 4.5
+   */
+  async getPuzzleById(puzzleId: string, difficulty: Difficulty): Promise<GetPuzzleResponse> {
+    try {
+      // Requirement 4.1: Implement proper request formatting
+      const params = new URLSearchParams({
+        puzzleId,
+        difficulty,
+      });
+
+      console.log(`Requesting puzzle by ID: ${puzzleId}, difficulty: ${difficulty}`);
+
+      // Requirement 4.3: Add timeout protection (5 seconds)
+      const PUZZLE_BY_ID_TIMEOUT = 5000; // 5 seconds as per requirement
+      const abortController = new AbortController();
+      const timeoutId = setTimeout(() => {
+        abortController.abort();
+      }, PUZZLE_BY_ID_TIMEOUT);
+
+      try {
+        // Requirement 4.2: Implement error handling
+        // Requirement 4.4: Include retry logic for transient failures
+        const response = await fetch(
+          `${this.config.baseUrl}/api/puzzle/by-id?${params.toString()}`,
+          {
+            method: 'GET',
+            signal: abortController.signal,
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          }
+        );
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          const error = new Error(errorData.message || `HTTP ${response.status}`);
+          (error as any).status = response.status;
+          throw error;
+        }
+
+        const data = await response.json();
+
+        // Check if response is successful
+        if (!data.success || !data.data) {
+          throw new Error('Failed to retrieve puzzle by ID');
+        }
+
+        // Log metadata about puzzle source
+        if (data.metadata) {
+          console.log(
+            `✓ Puzzle retrieved: ${puzzleId} (source: ${data.metadata.source}, time: ${data.metadata.retrievalTime}ms)`
+          );
+        }
+
+        return {
+          success: true,
+          data: data.data,
+          timestamp: new Date(),
+        };
+      } catch (fetchError) {
+        clearTimeout(timeoutId);
+        throw fetchError;
+      }
+    } catch (error) {
+      console.error(`Error fetching puzzle by ID (${puzzleId}):`, error);
+
+      // Create appropriate error type
+      const apiError = this.createApiError(error, 'getPuzzleById');
+
+      // Requirement 4.4: Include retry logic for transient failures
+      if (apiError.retryable && apiError.type !== 'TIMEOUT_ERROR') {
+        // Retry once for transient failures (except timeouts)
+        try {
+          console.log(`Retrying puzzle fetch for ${puzzleId}...`);
+          await this.delay(1000); // 1 second delay before retry
+
+          const params = new URLSearchParams({
+            puzzleId,
+            difficulty,
+          });
+
+          const retryResponse = await fetch(
+            `${this.config.baseUrl}/api/puzzle/by-id?${params.toString()}`,
+            {
+              method: 'GET',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+            }
+          );
+
+          if (retryResponse.ok) {
+            const data = await retryResponse.json();
+            if (data.success && data.data) {
+              console.log(`✓ Puzzle retrieved on retry: ${puzzleId}`);
+              return {
+                success: true,
+                data: data.data,
+                timestamp: new Date(),
+              };
+            }
+          }
+        } catch (retryError) {
+          console.error(`Retry failed for puzzle ${puzzleId}:`, retryError);
+        }
+      }
+
+      // Show user-friendly error messages
+      if (apiError.type === 'OFFLINE_ERROR') {
+        toast.error('Cannot load puzzle while offline', {
+          description: 'Please check your internet connection.',
+          duration: 5000,
+        });
+      } else if (apiError.type === 'TIMEOUT_ERROR') {
+        toast.error('Puzzle loading timed out', {
+          description: 'Please try again.',
+          duration: 4000,
+        });
+      } else if (apiError.type === 'VALIDATION_ERROR') {
+        toast.error('Invalid puzzle request', {
+          description: 'The puzzle ID or difficulty may be incorrect.',
+          duration: 4000,
+        });
+      } else {
+        toast.error('Failed to load puzzle', {
+          description: 'Please try again or contact support.',
+          duration: 4000,
+        });
+      }
+
+      throw apiError;
+    }
+  }
+
+  /**
    * Generate a new puzzle using enhanced guaranteed generation
    */
   async generateEnhancedPuzzle(

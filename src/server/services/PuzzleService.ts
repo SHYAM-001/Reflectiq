@@ -21,6 +21,8 @@ import {
 } from '../utils/errorHandler.js';
 import { createBackupPuzzle } from '../utils/backupPuzzles.js';
 import { cacheManager, initializeCacheManager } from './CacheManager.js';
+import { puzzleMetrics } from '../utils/puzzleMetrics.js';
+import { performanceMonitor } from './PerformanceMonitoringService.js';
 
 export class PuzzleService {
   private static instance: PuzzleService;
@@ -47,32 +49,50 @@ export class PuzzleService {
   }
 
   /**
-   * Get current day's puzzle by difficulty with comprehensive error handling
+   * Get puzzle by date and difficulty (for legacy posts)
+   * Requirement 7.2: Implement fallback to date-based daily puzzle retrieval
+   * Requirement 7.3: Add logging when legacy fallback is triggered
+   * Requirement 7.4: Ensure full functionality for pre-migration posts
+   * Requirement 7.5: Maintain full functionality for posts created before feature implementation
    */
-  public async getCurrentPuzzle(difficulty: Difficulty): Promise<GetPuzzleResponse> {
+  public async getPuzzleByDate(date: string, difficulty: Difficulty): Promise<GetPuzzleResponse> {
     try {
-      const today = new Date().toISOString().split('T')[0] as string;
-
       // Validate difficulty parameter
       if (!['Easy', 'Medium', 'Hard'].includes(difficulty)) {
         return createErrorResponse('VALIDATION_ERROR', `Invalid difficulty: ${difficulty}`);
       }
 
-      const puzzleSet = await this.getDailyPuzzleSet(today);
+      // Requirement 7.3: Add logging when legacy fallback is triggered
+      console.log(`🔄 Legacy date-based puzzle retrieval for ${date}, difficulty: ${difficulty}`);
+
+      const puzzleSet = await this.getDailyPuzzleSet(date);
 
       if (!puzzleSet) {
-        // Generate puzzles if they don't exist
+        // Generate puzzles if they don't exist for the requested date
         try {
-          const newPuzzleSet = await this.generateDailyPuzzles(today);
+          console.log(`🔄 No puzzle set found for ${date}, generating (legacy fallback)`);
+          const newPuzzleSet = await this.generateDailyPuzzles(date);
           const puzzle = this.getPuzzleFromSet(newPuzzleSet, difficulty);
+
+          // Requirement 7.3: Add logging when legacy fallback is triggered
+          console.log(`✓ Legacy puzzle generated for ${date}, difficulty: ${difficulty}`);
+
           return createSuccessResponse(puzzle);
         } catch (generationError) {
-          console.error('Failed to generate puzzles, using backup:', generationError);
+          console.error(`Failed to generate puzzles for ${date}, using backup:`, generationError);
 
           // Fallback to backup puzzle
           try {
-            const backupPuzzle = createBackupPuzzle(difficulty, today);
-            console.log(`Using backup puzzle for ${difficulty} difficulty`);
+            const backupPuzzle = createBackupPuzzle(difficulty, date);
+            console.log(`🔄 Using backup puzzle for ${difficulty} difficulty (legacy fallback)`);
+
+            // Requirement 7.3: Add logging when legacy fallback is triggered
+            errorMonitor.recordError(
+              'GENERATION_FAILED',
+              `Legacy fallback used backup puzzle for ${date}, ${difficulty}`,
+              'getPuzzleByDate'
+            );
+
             return createSuccessResponse(backupPuzzle);
           } catch (backupError) {
             console.error('Backup puzzle creation also failed:', backupError);
@@ -85,9 +105,115 @@ export class PuzzleService {
       }
 
       const puzzle = this.getPuzzleFromSet(puzzleSet, difficulty);
+
+      // Requirement 7.3: Add logging when legacy fallback is triggered
+      console.log(`✓ Legacy puzzle retrieved from cache for ${date}, difficulty: ${difficulty}`);
+
+      return createSuccessResponse(puzzle);
+    } catch (error) {
+      console.error(`Error getting puzzle by date (${date}):`, error);
+
+      // Requirement 7.3: Add logging when legacy fallback is triggered
+      errorMonitor.recordError(
+        'PUZZLE_RETRIEVAL_ERROR',
+        `Legacy date-based puzzle retrieval failed for ${date}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'getPuzzleByDate'
+      );
+
+      // Determine specific error type
+      let errorType: ReflectIQErrorType = 'INTERNAL_ERROR';
+      if (error instanceof Error) {
+        if (error.message.includes('Redis') || error.message.includes('redis')) {
+          errorType = 'REDIS_ERROR';
+        } else if (error.message.includes('not found')) {
+          errorType = 'PUZZLE_NOT_FOUND';
+        }
+      }
+
+      return createErrorResponse(
+        errorType,
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+    }
+  }
+
+  /**
+   * Get current day's puzzle by difficulty with comprehensive error handling
+   * Supports legacy posts through date-based daily puzzle retrieval
+   * Requirements: 7.2, 7.3, 7.4, 7.5
+   */
+  public async getCurrentPuzzle(difficulty: Difficulty): Promise<GetPuzzleResponse> {
+    try {
+      const today = new Date().toISOString().split('T')[0] as string;
+
+      // Validate difficulty parameter
+      if (!['Easy', 'Medium', 'Hard'].includes(difficulty)) {
+        return createErrorResponse('VALIDATION_ERROR', `Invalid difficulty: ${difficulty}`);
+      }
+
+      // Requirement 7.3: Add logging when legacy fallback is triggered
+      console.log(
+        `📅 Retrieving daily puzzle for ${today}, difficulty: ${difficulty} (legacy mode)`
+      );
+
+      const puzzleSet = await this.getDailyPuzzleSet(today);
+
+      if (!puzzleSet) {
+        // Generate puzzles if they don't exist
+        try {
+          console.log(
+            `🔄 No puzzle set found for ${today}, generating new puzzles (legacy fallback)`
+          );
+          const newPuzzleSet = await this.generateDailyPuzzles(today);
+          const puzzle = this.getPuzzleFromSet(newPuzzleSet, difficulty);
+
+          // Requirement 7.3: Add logging when legacy fallback is triggered
+          console.log(
+            `✓ Legacy puzzle generated successfully for ${today}, difficulty: ${difficulty}`
+          );
+
+          return createSuccessResponse(puzzle);
+        } catch (generationError) {
+          console.error('Failed to generate puzzles, using backup:', generationError);
+
+          // Fallback to backup puzzle
+          try {
+            const backupPuzzle = createBackupPuzzle(difficulty, today);
+            console.log(`🔄 Using backup puzzle for ${difficulty} difficulty (legacy fallback)`);
+
+            // Requirement 7.3: Add logging when legacy fallback is triggered
+            errorMonitor.recordError(
+              'GENERATION_FAILED',
+              `Legacy fallback used backup puzzle for ${today}, ${difficulty}`,
+              'getCurrentPuzzle'
+            );
+
+            return createSuccessResponse(backupPuzzle);
+          } catch (backupError) {
+            console.error('Backup puzzle creation also failed:', backupError);
+            return createErrorResponse(
+              'GENERATION_FAILED',
+              'Both puzzle generation and backup failed'
+            );
+          }
+        }
+      }
+
+      const puzzle = this.getPuzzleFromSet(puzzleSet, difficulty);
+
+      // Requirement 7.3: Add logging when legacy fallback is triggered
+      console.log(`✓ Legacy puzzle retrieved from cache for ${today}, difficulty: ${difficulty}`);
+
       return createSuccessResponse(puzzle);
     } catch (error) {
       console.error('Error getting current puzzle:', error);
+
+      // Requirement 7.3: Add logging when legacy fallback is triggered
+      errorMonitor.recordError(
+        'PUZZLE_RETRIEVAL_ERROR',
+        `Legacy puzzle retrieval failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        'getCurrentPuzzle'
+      );
 
       // Determine specific error type
       let errorType: ReflectIQErrorType = 'INTERNAL_ERROR';
@@ -392,6 +518,329 @@ export class PuzzleService {
     } catch (error) {
       console.error('Error cleaning up old puzzles:', error);
       return 0;
+    }
+  }
+
+  /**
+   * Get puzzle metrics for monitoring
+   * Requirement 9.5: Implement metrics tracking for success rates and latency
+   */
+  public getMetrics() {
+    return puzzleMetrics.getAggregatedMetrics();
+  }
+
+  /**
+   * Get metrics summary for logging
+   * Requirement 9.5: Implement metrics tracking for success rates and latency
+   */
+  public logMetricsSummary(): void {
+    console.log(puzzleMetrics.getMetricsSummary());
+  }
+
+  /**
+   * Reset metrics (for testing or periodic reset)
+   */
+  public resetMetrics(): void {
+    puzzleMetrics.reset();
+  }
+
+  /**
+   * Get puzzle by unique ID (for post-specific puzzles)
+   * Enhanced with proper error handling, circuit breaker, and fallback to generation
+   * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 9.3, 10.4
+   */
+  public async getPuzzleById(puzzleId: string): Promise<Puzzle | null> {
+    const key = `reflectiq:puzzle:${puzzleId}`;
+    const startTime = Date.now();
+
+    try {
+      console.log(`Attempting to retrieve puzzle by ID: ${puzzleId}`);
+
+      // Use circuit breaker for Redis operations
+      const puzzle = await withRedisCircuitBreaker(
+        async () => {
+          const retrieveStartTime = Date.now();
+          const puzzleData = await redis.get(key);
+          const retrieveLatency = Date.now() - retrieveStartTime;
+
+          // Requirement 10.4: Track Redis operation performance
+          performanceMonitor.recordRedisOperation('get', key, retrieveLatency, !!puzzleData);
+
+          if (!puzzleData) {
+            console.log(`Puzzle not found in cache: ${puzzleId}`);
+
+            // Requirement 9.3: Log puzzle retrieval with cache hit/miss status
+            puzzleMetrics.recordStorage(
+              puzzleId,
+              'retrieve',
+              retrieveLatency,
+              false,
+              undefined,
+              'NOT_FOUND'
+            );
+
+            return null;
+          }
+
+          const retrievalTime = Date.now() - startTime;
+          console.log(`✓ Puzzle retrieved from cache: ${puzzleId} (${retrievalTime}ms)`);
+
+          // Requirement 9.2: Log Redis storage operations
+          // Requirement 9.3: Log puzzle retrieval with cache hit/miss status
+          puzzleMetrics.recordStorage(puzzleId, 'retrieve', retrieveLatency, true);
+
+          const parsedPuzzle = JSON.parse(puzzleData) as Puzzle;
+
+          // Requirement 9.3: Log puzzle retrieval with cache hit/miss status
+          puzzleMetrics.recordRetrieval(
+            puzzleId,
+            parsedPuzzle.difficulty,
+            'cache',
+            retrievalTime,
+            true
+          );
+
+          // Requirement 10.4: Track puzzle retrieval performance
+          performanceMonitor.recordPuzzleRetrieval(puzzleId, retrievalTime, true, true);
+
+          return parsedPuzzle;
+        },
+        async () => {
+          // Fallback when Redis is unavailable
+          console.warn(`Redis unavailable for puzzle retrieval: ${puzzleId}`);
+
+          // Requirement 9.4: Track error types and fallback actions
+          errorMonitor.recordError(
+            'REDIS_ERROR',
+            `Redis circuit breaker triggered for puzzle: ${puzzleId}`,
+            'getPuzzleById'
+          );
+          puzzleMetrics.recordError('REDIS_ERROR', 'Circuit breaker triggered', 'getPuzzleById');
+          puzzleMetrics.recordFallback(
+            'getPuzzleById',
+            'Redis unavailable',
+            'Return null for generation fallback',
+            true
+          );
+
+          return null;
+        },
+        `Get puzzle by ID: ${puzzleId}`
+      );
+
+      // Track cache miss if puzzle not found
+      if (!puzzle) {
+        const retrievalTime = Date.now() - startTime;
+        performanceMonitor.recordPuzzleRetrieval(puzzleId, retrievalTime, true, false);
+      }
+
+      return puzzle;
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const latency = Date.now() - startTime;
+      console.error(`Error retrieving puzzle ${puzzleId}:`, errorMessage);
+
+      // Requirement 9.4: Track error types and fallback actions
+      errorMonitor.recordError(
+        'PUZZLE_NOT_FOUND',
+        `Failed to retrieve puzzle: ${puzzleId} - ${errorMessage}`,
+        'getPuzzleById'
+      );
+      puzzleMetrics.recordError('PUZZLE_NOT_FOUND', errorMessage, 'getPuzzleById');
+
+      // Requirement 10.4: Track failed retrieval
+      performanceMonitor.recordPuzzleRetrieval(puzzleId, latency, false, false);
+
+      // Return null to trigger fallback generation
+      return null;
+    }
+  }
+
+  /**
+   * Generate and store a new puzzle with specific ID
+   * Enhanced with 90-day TTL, comprehensive logging, and error handling
+   * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 9.1, 9.2, 9.4, 10.1, 10.3
+   */
+  public async generatePuzzleWithId(
+    puzzleId: string,
+    difficulty: Difficulty
+  ): Promise<GetPuzzleResponse> {
+    const startTime = Date.now();
+
+    try {
+      console.log(`Generating puzzle with ID: ${puzzleId}, difficulty: ${difficulty}`);
+
+      // Validate difficulty parameter
+      if (!['Easy', 'Medium', 'Hard'].includes(difficulty)) {
+        return createErrorResponse('VALIDATION_ERROR', `Invalid difficulty: ${difficulty}`);
+      }
+
+      // Requirement 10.1: Use Enhanced Generator for guaranteed generation
+      let generationSource: 'enhanced' | 'legacy' | 'backup' = 'enhanced';
+      const puzzle = await withPuzzleGenerationFallback(
+        async () => {
+          const genStartTime = Date.now();
+          const generatedPuzzle = await this.enhancedEngine.generateGuaranteedPuzzle(
+            difficulty,
+            puzzleId
+          );
+
+          const generationTime = Date.now() - genStartTime;
+          console.log(
+            `✓ Puzzle generated successfully: ${puzzleId} (${generationTime}ms, difficulty: ${difficulty})`
+          );
+
+          // Requirement 9.1: Log puzzle generation with ID, difficulty, and generation time
+          puzzleMetrics.recordGeneration(puzzleId, difficulty, generationTime, true, 'enhanced');
+
+          // Requirement 10.3: Track puzzle generation performance
+          performanceMonitor.recordPuzzleGeneration(
+            puzzleId,
+            difficulty,
+            generationTime,
+            true,
+            'enhanced'
+          );
+
+          return generatedPuzzle;
+        },
+        async () => {
+          // Fallback to backup puzzle if generation fails
+          console.warn(`Enhanced generation failed for ${puzzleId}, using backup puzzle`);
+          generationSource = 'backup';
+
+          const genStartTime = Date.now();
+          const backupPuzzle = createBackupPuzzle(difficulty, puzzleId);
+          const generationTime = Date.now() - genStartTime;
+
+          // Requirement 9.4: Track error types and fallback actions
+          errorMonitor.recordError(
+            'GENERATION_FAILED',
+            `Used backup puzzle for ${puzzleId}`,
+            'generatePuzzleWithId'
+          );
+          puzzleMetrics.recordError(
+            'GENERATION_FAILED',
+            'Enhanced generation failed',
+            'generatePuzzleWithId'
+          );
+          puzzleMetrics.recordFallback(
+            'generatePuzzleWithId',
+            'Enhanced generation failed',
+            'Using backup puzzle template',
+            true
+          );
+
+          // Requirement 9.1: Log puzzle generation with ID, difficulty, and generation time
+          puzzleMetrics.recordGeneration(puzzleId, difficulty, generationTime, true, 'backup');
+
+          // Requirement 10.3: Track backup puzzle generation
+          performanceMonitor.recordPuzzleGeneration(
+            puzzleId,
+            difficulty,
+            generationTime,
+            true,
+            'backup'
+          );
+
+          return backupPuzzle;
+        },
+        `Generate puzzle with ID: ${puzzleId}`
+      );
+
+      // Store in Redis with 90-day TTL (7,776,000 seconds)
+      const key = `reflectiq:puzzle:${puzzleId}`;
+      const TTL_90_DAYS = 90 * 24 * 60 * 60;
+
+      await withRedisCircuitBreaker(
+        async () => {
+          const storeStartTime = Date.now();
+          await redis.set(key, JSON.stringify(puzzle));
+          const setLatency = Date.now() - storeStartTime;
+
+          // Requirement 10.4: Track Redis set operation performance
+          performanceMonitor.recordRedisOperation('set', key, setLatency, true);
+
+          const expireStartTime = Date.now();
+          await redis.expire(key, TTL_90_DAYS);
+          const expireLatency = Date.now() - expireStartTime;
+
+          // Requirement 10.4: Track Redis expire operation performance
+          performanceMonitor.recordRedisOperation('expire', key, expireLatency, true);
+
+          const totalTime = Date.now() - startTime;
+          console.log(
+            `✓ Puzzle stored in Redis: ${puzzleId} with 90-day TTL (total time: ${totalTime}ms)`
+          );
+
+          // Requirement 9.2: Log Redis storage operations with TTL information
+          puzzleMetrics.recordStorage(
+            puzzleId,
+            'store',
+            setLatency + expireLatency,
+            true,
+            TTL_90_DAYS
+          );
+        },
+        async () => {
+          // Fallback: log warning but continue without cache
+          console.warn(`Failed to store puzzle ${puzzleId} in Redis - continuing without cache`);
+
+          // Requirement 9.4: Track error types and fallback actions
+          errorMonitor.recordError(
+            'REDIS_ERROR',
+            `Failed to store puzzle: ${puzzleId}`,
+            'generatePuzzleWithId'
+          );
+          puzzleMetrics.recordError(
+            'REDIS_ERROR',
+            'Failed to store puzzle',
+            'generatePuzzleWithId'
+          );
+          puzzleMetrics.recordFallback(
+            'generatePuzzleWithId',
+            'Redis storage failed',
+            'Continue without cache',
+            true
+          );
+        },
+        `Store puzzle with ID: ${puzzleId}`
+      );
+
+      return createSuccessResponse(puzzle);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const generationTime = Date.now() - startTime;
+      console.error(`Error generating puzzle ${puzzleId}:`, errorMessage);
+
+      // Requirement 9.1: Log puzzle generation with ID, difficulty, and generation time
+      // Requirement 9.4: Track error types and fallback actions
+      puzzleMetrics.recordGeneration(
+        puzzleId,
+        difficulty,
+        generationTime,
+        false,
+        'enhanced',
+        errorMessage
+      );
+
+      // Requirement 10.3: Track failed generation
+      performanceMonitor.recordPuzzleGeneration(
+        puzzleId,
+        difficulty,
+        generationTime,
+        false,
+        'enhanced'
+      );
+
+      errorMonitor.recordError(
+        'GENERATION_FAILED',
+        `Failed to generate puzzle: ${puzzleId} - ${errorMessage}`,
+        'generatePuzzleWithId'
+      );
+      puzzleMetrics.recordError('GENERATION_FAILED', errorMessage, 'generatePuzzleWithId');
+
+      return createErrorResponse('GENERATION_FAILED', `Failed to generate puzzle: ${errorMessage}`);
     }
   }
 }

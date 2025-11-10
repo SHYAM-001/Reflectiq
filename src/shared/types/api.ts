@@ -57,6 +57,7 @@ export interface StartPuzzleResponse extends ApiResponse<SessionData> {}
 export interface RequestHintRequest {
   sessionId: string;
   hintNumber: 1 | 2 | 3 | 4;
+  puzzleId?: string; // Optional: for puzzle ID validation (Requirement 6.2, 6.5)
 }
 
 export interface RequestHintResponse
@@ -71,6 +72,7 @@ export interface SubmitAnswerRequest {
   sessionId: string;
   answer: GridPosition;
   timeTaken: number;
+  puzzleId?: string; // Optional: for puzzle ID validation (Requirement 6.2, 6.4)
 }
 
 export interface SubmitAnswerResponse

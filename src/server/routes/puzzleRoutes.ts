@@ -94,7 +94,7 @@ router.get(
 /**
  * POST /api/puzzle/start
  * Initialize a new puzzle session and start the timer
- * Requirements: 11.2, 4.1, 4.4, 9.2
+ * Requirements: 11.2, 4.1, 4.4, 9.2, 6.1
  */
 router.post(
   '/start',
@@ -133,11 +133,12 @@ router.post(
     const difficulty = (difficultyMatch[1].charAt(0).toUpperCase() +
       difficultyMatch[1].slice(1)) as Difficulty;
 
-    // Create session data
+    // Requirement 6.1: Modify session creation to store puzzleId with session data
+    // Create session data with puzzleId
     const sessionData: SessionData = {
       sessionId,
       userId,
-      puzzleId,
+      puzzleId, // Puzzle ID is stored with session for validation
       difficulty,
       startTime: new Date(),
       hintsUsed: 0,
@@ -148,6 +149,9 @@ router.post(
     // Store session in Redis with 1 hour expiration
     try {
       await redisClient.set(`sessions:${sessionId}`, JSON.stringify(sessionData), { ttl: 3600 });
+      console.log(
+        `Session created: ${sessionId} for user ${userId} with puzzleId ${puzzleId} (${difficulty})`
+      );
     } catch (error) {
       // Fallback: continue without storing session (degraded mode)
       console.warn(`Failed to store session ${sessionId} - continuing in degraded mode`);
@@ -160,12 +164,12 @@ router.post(
 /**
  * POST /api/puzzle/hint
  * Request a hint for the current puzzle session
- * Requirements: 11.3, 3.1, 3.2, 3.4, 3.5
+ * Requirements: 11.3, 3.1, 3.2, 3.4, 3.5, 6.2, 6.5
  */
 router.post(
   '/hint',
   asyncHandler(async (req, res) => {
-    const { sessionId, hintNumber }: RequestHintRequest = req.body;
+    const { sessionId, hintNumber, puzzleId }: RequestHintRequest = req.body;
 
     // Validate required fields
     const validation = validateRequired(req.body, ['sessionId', 'hintNumber']);
@@ -182,13 +186,26 @@ router.post(
       return sendErrorResponse(res, 'VALIDATION_ERROR', 'Hint number must be between 1 and 4');
     }
 
-    // Retrieve session using the new Redis client
+    // Requirement 6.3: Retrieve session using the new Redis client (includes puzzleId)
     const cachedSession = await redisClient.get(`sessions:${sessionId}`);
     if (!cachedSession) {
       return sendErrorResponse(res, 'SESSION_EXPIRED', 'Session not found or expired');
     }
 
     const sessionData: SessionData = JSON.parse(cachedSession);
+
+    // Requirement 6.2: Validate that puzzle ID matches session
+    // Requirement 6.5: Ensure session isolation between different puzzle IDs
+    if (puzzleId && sessionData.puzzleId !== puzzleId) {
+      console.warn(
+        `Puzzle ID mismatch in hint request: session has ${sessionData.puzzleId}, request has ${puzzleId}`
+      );
+      return sendErrorResponse(
+        res,
+        'VALIDATION_ERROR',
+        'Puzzle ID does not match session. Please start a new game.'
+      );
+    }
 
     // Check if hint is already used or if requesting hints out of order
     if (hintNumber <= sessionData.hintsUsed) {
@@ -242,7 +259,7 @@ router.post(
 router.post(
   '/submit',
   asyncHandler(async (req, res) => {
-    const { sessionId, answer, timeTaken }: SubmitAnswerRequest = req.body;
+    const { sessionId, answer, timeTaken, puzzleId }: SubmitAnswerRequest = req.body;
 
     // Validate required fields
     const validation = validateRequired(req.body, ['sessionId', 'answer', 'timeTaken']);
@@ -274,12 +291,26 @@ router.post(
     }
 
     // Retrieve session
+    // Requirement 6.3: Ensure session retrieval includes associated puzzleId
     const cachedSession = await redisClient.get(`sessions:${sessionId}`);
     if (!cachedSession) {
       return sendErrorResponse(res, 'SESSION_EXPIRED', 'Session not found or expired');
     }
 
     const sessionData: SessionData = JSON.parse(cachedSession);
+
+    // Requirement 6.2: Update session validation to verify puzzle ID matches
+    // Requirement 6.4: Add validation in answer submission to check puzzle ID consistency
+    if (puzzleId && sessionData.puzzleId !== puzzleId) {
+      console.warn(
+        `Puzzle ID mismatch: session has ${sessionData.puzzleId}, submission has ${puzzleId}`
+      );
+      return sendErrorResponse(
+        res,
+        'VALIDATION_ERROR',
+        'Puzzle ID does not match session. Please start a new game.'
+      );
+    }
 
     // Check if session is still active
     if (sessionData.status !== 'active') {

@@ -1,4 +1,8 @@
 import { context, reddit } from '@devvit/web/server';
+import { PuzzleService } from '../services/PuzzleService.js';
+import { generateUniquePuzzleId } from '../utils/puzzleIdGenerator.js';
+import { Difficulty } from '../../shared/types/puzzle.js';
+import { cacheWarmingService } from '../services/CacheWarmingService.js';
 
 // Enhanced splash screen configuration for different contexts
 interface SplashConfig {
@@ -301,7 +305,8 @@ export const createLeaderboardPost = async (
 export const createPost = async (
   puzzleType: 'daily' | 'special' | 'challenge' = 'daily',
   availableDifficulties: ('easy' | 'medium' | 'hard')[] = ['easy', 'medium', 'hard'],
-  specificDifficulty?: 'easy' | 'medium' | 'hard'
+  specificDifficulty?: 'easy' | 'medium' | 'hard',
+  puzzleId?: string
 ) => {
   const { subredditName } = context;
   if (!subredditName) {
@@ -311,8 +316,122 @@ export const createPost = async (
   // Ensure subredditName is properly typed as string
   const validSubredditName: string = subredditName;
 
-  const today = new Date().toISOString().split('T')[0];
+  const today = new Date().toISOString().split('T')[0] as string;
 
+  // Determine the difficulty for puzzle generation
+  // For single-difficulty posts, use specificDifficulty
+  // For multi-difficulty posts, this will be handled separately if needed
+  const difficulty: Difficulty = specificDifficulty
+    ? ((specificDifficulty.charAt(0).toUpperCase() + specificDifficulty.slice(1)) as Difficulty)
+    : 'Medium'; // Default fallback
+
+  // Generate unique puzzle ID if not provided
+  // Requirements: 3.1 - Generate unique puzzle ID before post creation
+  const uniquePuzzleId = puzzleId || generateUniquePuzzleId(today, difficulty);
+  console.log(
+    `[createPost] Generated unique puzzle ID: ${uniquePuzzleId} for difficulty: ${difficulty}`
+  );
+
+  // Generate and store puzzle before creating post
+  // Requirements: 3.2, 3.3 - Call PuzzleService.generatePuzzleWithId() and store in Redis with 90-day TTL
+  const puzzleService = PuzzleService.getInstance();
+
+  try {
+    console.log(`[createPost] Generating puzzle with ID: ${uniquePuzzleId}`);
+    const puzzleResponse = await puzzleService.generatePuzzleWithId(uniquePuzzleId, difficulty);
+
+    if (!puzzleResponse.success) {
+      // Requirements: 3.5 - Add error handling and retry logic for puzzle generation failures
+      console.error(`[createPost] Puzzle generation failed: ${puzzleResponse.error?.message}`);
+
+      // Retry once with a new puzzle ID
+      console.log(`[createPost] Retrying puzzle generation with new ID`);
+      const retryPuzzleId = generateUniquePuzzleId(today, difficulty);
+      const retryResponse = await puzzleService.generatePuzzleWithId(retryPuzzleId, difficulty);
+
+      if (!retryResponse.success) {
+        throw new Error(`Puzzle generation failed after retry: ${retryResponse.error?.message}`);
+      }
+
+      // Use the retry puzzle ID if successful
+      console.log(`[createPost] Retry successful with puzzle ID: ${retryPuzzleId}`);
+      // Update the puzzle ID to use the successful one
+      const finalPuzzleId = retryPuzzleId;
+
+      // Continue with post creation using retry puzzle ID
+      return await createPostWithPuzzleId(
+        validSubredditName,
+        today,
+        puzzleType,
+        availableDifficulties,
+        specificDifficulty,
+        finalPuzzleId,
+        difficulty
+      );
+    }
+
+    console.log(`[createPost] ✓ Puzzle generated and stored successfully: ${uniquePuzzleId}`);
+  } catch (error) {
+    // Requirements: 3.5 - Add error handling for puzzle generation failures
+    console.error(`[createPost] Error during puzzle generation:`, error);
+
+    // Attempt one final retry with fallback
+    try {
+      console.log(`[createPost] Final retry attempt with fallback generation`);
+      const fallbackPuzzleId = generateUniquePuzzleId(today, difficulty);
+      const fallbackResponse = await puzzleService.generatePuzzleWithId(
+        fallbackPuzzleId,
+        difficulty
+      );
+
+      if (fallbackResponse.success) {
+        console.log(`[createPost] Fallback generation successful: ${fallbackPuzzleId}`);
+        return await createPostWithPuzzleId(
+          validSubredditName,
+          today,
+          puzzleType,
+          availableDifficulties,
+          specificDifficulty,
+          fallbackPuzzleId,
+          difficulty
+        );
+      }
+    } catch (fallbackError) {
+      console.error(`[createPost] Fallback generation also failed:`, fallbackError);
+    }
+
+    // If all retries fail, throw error to prevent post creation without puzzle
+    throw new Error(
+      `Failed to generate puzzle for post creation: ${error instanceof Error ? error.message : 'Unknown error'}`
+    );
+  }
+
+  // Create post with puzzle ID
+  // Requirements: 3.4 - Include puzzleId in postData when creating custom post
+  return await createPostWithPuzzleId(
+    validSubredditName,
+    today,
+    puzzleType,
+    availableDifficulties,
+    specificDifficulty,
+    uniquePuzzleId,
+    difficulty
+  );
+};
+
+/**
+ * Helper function to create post with puzzle ID
+ * Extracted to avoid code duplication in retry logic
+ */
+const createPostWithPuzzleId = async (
+  subredditName: string,
+  today: string,
+  puzzleType: 'daily' | 'special' | 'challenge',
+  availableDifficulties: ('easy' | 'medium' | 'hard')[],
+  specificDifficulty: 'easy' | 'medium' | 'hard' | undefined,
+  puzzleId: string,
+  difficulty: Difficulty
+) => {
   // Generate dynamic splash screen configuration with available difficulties
   const splashConfig = generateSplashConfig(puzzleType, availableDifficulties, specificDifficulty);
 
@@ -344,17 +463,23 @@ export const createPost = async (
     (new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000
   );
 
+  // Requirements: 3.4 - Include puzzleId in postData when creating custom post
+  console.log(`[createPostWithPuzzleId] Creating post with puzzle ID: ${puzzleId}`);
+
   return await reddit.submitCustomPost({
-    subredditName: validSubredditName,
+    subredditName: subredditName,
     title: title,
     splash: splashConfig,
     postData: {
+      type: 'puzzle',
+      puzzleId: puzzleId, // Store unique puzzle ID
       puzzleDate: today,
       gameType: puzzleType,
       availableDifficulties: availableDifficulties,
-      specificDifficulty: specificDifficulty, // Add specific difficulty for single-difficulty posts
+      specificDifficulty: specificDifficulty,
       status: 'active',
-      splashVariant: dayOfYear % 6, // Track which variant was used (0-5)
+      splashVariant: dayOfYear % 6,
+      generatedAt: new Date().toISOString(),
     } as Record<string, unknown>,
   });
 };
