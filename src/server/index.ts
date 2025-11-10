@@ -1556,6 +1556,7 @@ router.post('/internal/scheduler/post-daily-puzzle', async (_req, res): Promise<
 
     const today = new Date().toISOString().split('T')[0] as string;
     const puzzleService = PuzzleService.getInstance();
+    const leaderboardService = LeaderboardService.getInstance();
 
     // Check if puzzles exist for today
     const puzzlesExist = await puzzleService.puzzlesExistForDate(today);
@@ -1581,7 +1582,60 @@ router.post('/internal/scheduler/post-daily-puzzle', async (_req, res): Promise<
       throw new Error('Subreddit name not available in context');
     }
 
-    // Create separate interactive custom posts for each difficulty level
+    // STEP 1: Create yesterday's leaderboard post FIRST (if data exists)
+    let leaderboardPost = null;
+    try {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+      console.log(`Checking for yesterday's leaderboard data: ${yesterdayStr}`);
+      const leaderboardResult = await leaderboardService.getDailyLeaderboard(yesterdayStr, 10);
+      const stats = await leaderboardService.getLeaderboardStats(yesterdayStr);
+
+      if (leaderboardResult.entries.length > 0) {
+        console.log(
+          `Creating yesterday's leaderboard post (${leaderboardResult.entries.length} entries)`
+        );
+
+        const leaderboardData = {
+          type: 'leaderboard' as const,
+          leaderboardType: 'daily' as const,
+          date: yesterdayStr,
+          entries: leaderboardResult.entries.map((entry, index) => ({
+            rank: index + 1,
+            username: entry.username,
+            time: `${Math.floor(entry.time / 60)}:${(entry.time % 60).toString().padStart(2, '0')}`,
+            difficulty: entry.difficulty.toLowerCase() as 'easy' | 'medium' | 'hard',
+            hintsUsed: entry.hints,
+            score: entry.score,
+          })),
+          stats: {
+            totalPlayers: stats.dailyPlayers,
+            totalSubmissions: stats.totalSubmissions,
+            fastestTime:
+              leaderboardResult.entries.length > 0
+                ? `${Math.floor(leaderboardResult.entries[0].time / 60)}:${(leaderboardResult.entries[0].time % 60).toString().padStart(2, '0')}`
+                : 'N/A',
+            topScore: leaderboardResult.entries.length > 0 ? leaderboardResult.entries[0].score : 0,
+            puzzleStats: stats.puzzleStats,
+          },
+        };
+
+        leaderboardPost = await createLeaderboardPost(leaderboardData, 'daily');
+        console.log(`✅ Created yesterday's leaderboard post: ${leaderboardPost.id}`);
+
+        // Add delay after leaderboard post
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+      } else {
+        console.log(`No leaderboard data found for ${yesterdayStr}, skipping leaderboard post`);
+      }
+    } catch (leaderboardError) {
+      console.warn("Failed to create yesterday's leaderboard post:", leaderboardError);
+      // Don't fail the entire operation if leaderboard posting fails
+    }
+
+    // STEP 2: Create today's puzzle posts (Easy, Medium, Hard)
     const availableDifficulties = puzzleStats.difficulties as ('easy' | 'medium' | 'hard')[];
     const createdPosts: Array<{ difficulty: string; postId: string }> = [];
 
@@ -1595,7 +1649,7 @@ router.post('/internal/scheduler/post-daily-puzzle', async (_req, res): Promise<
             difficulty: difficulty.charAt(0).toUpperCase() + difficulty.slice(1),
             postId: post.id,
           });
-          console.log(`Successfully posted ${difficulty} puzzle for ${today}: ${post.id}`);
+          console.log(`✅ Successfully posted ${difficulty} puzzle for ${today}: ${post.id}`);
 
           // Add small delay between posts to avoid rate limiting
           await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1609,14 +1663,15 @@ router.post('/internal/scheduler/post-daily-puzzle', async (_req, res): Promise<
         throw new Error('Failed to create any puzzle posts');
       }
 
-      console.log(`Successfully posted ${createdPosts.length} daily puzzle posts for ${today}`);
+      console.log(`✅ Successfully posted ${createdPosts.length} daily puzzle posts for ${today}`);
 
       const executionTime = Date.now() - startTime;
       res.json({
         status: 'success',
-        message: `${createdPosts.length} daily puzzle posts created successfully`,
+        message: `${createdPosts.length} daily puzzle posts created successfully${leaderboardPost ? " + yesterday's leaderboard" : ''}`,
         date: today,
         posts: createdPosts,
+        leaderboardPost: leaderboardPost ? { postId: leaderboardPost.id } : null,
         puzzleStats,
         executionTime,
       });
